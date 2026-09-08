@@ -88,12 +88,20 @@ fbq('track', 'PageView');
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Meta Pixel & Conversions API</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Configure seus Pixels e tokens da API de Conversões do Meta Ads</p>
         </div>
-        <button 
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700"
-        >
-          <Plus className="w-4 h-4" /> Adicionar Pixel
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href="/integrations/utm"
+            className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold border border-slate-200 dark:border-gray-700 transition-colors"
+          >
+            Central de Rastreamento →
+          </a>
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 shadow"
+          >
+            <Plus className="w-4 h-4" /> Adicionar Pixel
+          </button>
+        </div>
       </div>
 
       <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden">
