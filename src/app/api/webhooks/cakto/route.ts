@@ -11,6 +11,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    const { searchParams } = new URL(req.url)
+    const queryWs = searchParams.get('workspaceId') || searchParams.get('workspace_id') || req.headers.get('x-workspace-id')
+
     const body = await req.json()
     // Cakto webhook supports standard structure (event / data or flat payload)
     const id = body.id || body.data?.id || body.data?.transaction?.id || body.transaction_id || body.order_id
@@ -25,11 +28,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid payload: missing transaction id' }, { status: 400 })
     }
 
-    let integration = await prisma.integration.findFirst({
-      where: { platform: { in: ['cakto', 'cacto'] } }
-    })
+    let workspaceId: string | null | undefined = queryWs
+    if (!workspaceId) {
+      const integration = await prisma.integration.findFirst({
+        where: { platform: { in: ['cakto', 'cacto'] } }
+      })
+      workspaceId = integration?.workspaceId
+    }
 
-    let workspaceId = integration?.workspaceId
     if (!workspaceId) {
       const defaultWs = await prisma.workspace.findFirst({ orderBy: { createdAt: 'asc' } })
       if (!defaultWs) return NextResponse.json({ error: 'Workspace not found' }, { status: 404 })
@@ -58,6 +64,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, message: 'Already processed (idempotent)' })
     }
 
+    const paymentType = (body.payment_method || body.data?.payment_method || body.data?.payment?.type || '').toLowerCase()
+    const paymentMethod = paymentType.includes('pix') || caktoStatus.includes('pix') ? 'pix' : (paymentType.includes('boleto') || paymentType.includes('billet')) ? 'boleto' : 'card'
+
     await prisma.webhookEvent.create({
       data: {
         idempotencyKey,
@@ -72,6 +81,7 @@ export async function POST(req: Request) {
       workspaceId,
       platform: 'cakto',
       externalId: id.toString(),
+      externalRef: paymentMethod,
       status,
       grossAmount: amount || 0,
       netAmount: amount || 0,
@@ -92,7 +102,7 @@ export async function POST(req: Request) {
     if (status === 'approved') notifType = 'sale_approved'
     else if (status === 'refunded') notifType = 'refund'
     else if (status === 'chargeback') notifType = 'chargeback'
-    else if (caktoStatus.includes('pix')) notifType = 'pix_pending'
+    else if (caktoStatus.includes('pix') || paymentType.includes('pix')) notifType = 'pix_pending'
 
     await createSaleNotification({
       workspaceId,

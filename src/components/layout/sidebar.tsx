@@ -27,26 +27,26 @@ import { UtmTrackLogo } from '@/components/brand/logo'
 
 const navigation = [
   {
-    title: 'DASHBOARD',
-    items: [
-      { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-      { name: 'Avançado', href: '/dashboard/advanced', icon: BarChart3 },
-      { name: 'Aplicativo', href: '/dashboard/app', icon: AppWindow },
-    ],
-  },
-  {
     title: 'PRINCIPAL',
     items: [
+      { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
       { name: 'Resumo', href: '/summary', icon: FileText },
-      { name: 'Vendas', href: '/sales', icon: ShoppingBag },
       { name: 'Meta Ads', href: '/meta-ads', icon: TrendingUp },
-      { name: 'UTM', href: '/utm', icon: Link2 },
+      { name: 'Integrações', href: '/integrations', icon: Plug },
     ],
   },
   {
-    title: 'ANÁLISE E OPERAÇÃO',
+    title: 'APLICATIVO & AVANÇADO',
     items: [
-      { name: 'Integrações', href: '/integrations', icon: Plug },
+      { name: 'Aplicativo', href: '/dashboard/app', icon: AppWindow },
+      { name: 'Avançado', href: '/dashboard/advanced', icon: BarChart3 },
+    ],
+  },
+  {
+    title: 'OPERAÇÃO & ANÁLISE',
+    items: [
+      { name: 'Vendas', href: '/sales', icon: ShoppingBag },
+      { name: 'UTM', href: '/utm', icon: Link2 },
       { name: 'Regras', href: '/rules', icon: GitBranch },
       { name: 'Taxas', href: '/fees', icon: Percent },
       { name: 'Despesas', href: '/expenses', icon: Receipt },

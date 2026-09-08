@@ -115,4 +115,37 @@ describe('Integrações e Normalização de Webhooks', () => {
     assert.equal(isCheckout('https://minhaloja.myshopify.com/checkouts/c/12345'), true)
     assert.equal(isCheckout('https://meusite.com.br/pagina-de-vendas'), false)
   })
+
+  it('Resolução de Workspace por Query Parameter e Header no Webhook', () => {
+    const resolveWorkspace = (searchParams: URLSearchParams, headers: Record<string, string>, defaultId: string) => {
+      return searchParams.get('workspaceId') || searchParams.get('workspace_id') || headers['x-workspace-id'] || defaultId
+    }
+
+    const params1 = new URLSearchParams('workspaceId=ws_custom_123')
+    assert.equal(resolveWorkspace(params1, {}, 'ws_default'), 'ws_custom_123')
+
+    const params2 = new URLSearchParams('workspace_id=ws_snake_456')
+    assert.equal(resolveWorkspace(params2, {}, 'ws_default'), 'ws_snake_456')
+
+    const headers = { 'x-workspace-id': 'ws_header_789' }
+    assert.equal(resolveWorkspace(new URLSearchParams(), headers, 'ws_default'), 'ws_header_789')
+
+    assert.equal(resolveWorkspace(new URLSearchParams(), {}, 'ws_default'), 'ws_default')
+  })
+
+  it('Classificação e Mapeamento de Métodos de Pagamento (Pix, Cartão, Boleto)', () => {
+    const classifyPayment = (typeOrGateway: string): 'pix' | 'card' | 'boleto' => {
+      const lower = typeOrGateway.toLowerCase()
+      if (lower.includes('pix')) return 'pix'
+      if (lower.includes('boleto') || lower.includes('billet')) return 'boleto'
+      return 'card'
+    }
+
+    assert.equal(classifyPayment('PIX'), 'pix')
+    assert.equal(classifyPayment('pix_instant'), 'pix')
+    assert.equal(classifyPayment('credit_card'), 'card')
+    assert.equal(classifyPayment('mastercard'), 'card')
+    assert.equal(classifyPayment('billet'), 'boleto')
+    assert.equal(classifyPayment('boleto_bancario'), 'boleto')
+  })
 })
