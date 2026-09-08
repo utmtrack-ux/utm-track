@@ -1,18 +1,33 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { signIn } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 import { UtmTrackLogo } from '@/components/brand/logo'
 
-export default function LoginPage() {
+function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const router = useRouter()
+  const searchParams = useSearchParams()
+
+  useEffect(() => {
+    const errParam = searchParams.get('error')
+    if (errParam) {
+      if (errParam === 'CredentialsSignin') {
+        setError('E-mail ou senha incorretos.')
+      } else if (errParam === 'Configuration') {
+        setError('Erro de configuração no servidor de autenticação.')
+      } else if (errParam === 'AccessDenied') {
+        setError('Acesso negado.')
+      } else {
+        setError(`Erro na autenticação: ${errParam}`)
+      }
+    }
+  }, [searchParams])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -31,16 +46,19 @@ export default function LoginPage() {
       if (res?.error) {
         if (res.error === 'CredentialsSignin' || res.code === 'credentials') {
           setError('E-mail ou senha incorretos.')
+        } else if (res.error === 'Configuration') {
+          setError('Erro de configuração de autenticação no servidor.')
         } else {
-          setError('Não foi possível entrar. Verifique suas credenciais.')
+          setError(`Não foi possível entrar (${res.error}). Verifique suas credenciais.`)
         }
-      } else if (res?.ok || res?.url) {
+      } else if (res?.ok) {
         // Redireciona com window.location para forçar a inicialização limpa da sessão
         window.location.href = '/dashboard'
       } else {
         setError('E-mail ou senha incorretos.')
       }
-    } catch (err) {
+    } catch (err: unknown) {
+      console.error('[login error]', err)
       setError('Ocorreu um erro ao conectar com o servidor. Tente novamente.')
     } finally {
       setLoading(false)
@@ -105,3 +123,12 @@ export default function LoginPage() {
     </div>
   )
 }
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="text-center py-12 text-slate-400">Carregando...</div>}>
+      <LoginForm />
+    </Suspense>
+  )
+}
+
