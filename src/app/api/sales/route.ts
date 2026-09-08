@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getUserWorkspaceId } from '@/lib/workspace'
+import { purgeTestSales } from '@/lib/integrations/normalizer'
 
 export async function GET(req: Request) {
   try {
@@ -14,6 +15,9 @@ export async function GET(req: Request) {
     if (!workspaceId) {
       return NextResponse.json({ error: 'No workspace found' }, { status: 404 })
     }
+
+    // Purge any legacy synthetic test sales cleanly
+    await purgeTestSales(workspaceId)
 
     const { searchParams } = new URL(req.url)
     const status = searchParams.get('status')

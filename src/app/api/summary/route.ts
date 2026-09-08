@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getUserWorkspaceId } from '@/lib/workspace'
+import { purgeTestSales } from '@/lib/integrations/normalizer'
 import {
   calcROAS, calcROI, calcMargin, calcProfit, calcCPA, calcCPC, calcCPM, calcCTR, calcCPI
 } from '@/lib/metrics'
@@ -13,6 +14,9 @@ export async function GET(req: Request) {
 
     const workspaceId = await getUserWorkspaceId(session.user.id)
     if (!workspaceId) return NextResponse.json({ error: 'No workspace' }, { status: 404 })
+
+    // Clean any synthetic test sales
+    await purgeTestSales(workspaceId)
 
     const { searchParams } = new URL(req.url)
     const fromStr = searchParams.get('from')

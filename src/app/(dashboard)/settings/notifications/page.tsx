@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -433,6 +433,103 @@ export default function NotificationSettingsPage() {
               </div>
             </div>
           </div>
+
+          {/* Seção 4: Teste Real de Notificação Push */}
+          <PushTestSection />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PushTestSection() {
+  const [isSending, setIsSending] = useState(false);
+  const [statusMsg, setStatusMsg] = useState<{ type: "success" | "warning" | "error"; text: string } | null>(null);
+
+  const handleSendTest = async () => {
+    setIsSending(true);
+    setStatusMsg(null);
+    try {
+      const res = await fetch("/api/notifications/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "UTM-Track",
+          message: "Notificação de teste recebida com sucesso. Seu aplicativo está configurado corretamente.",
+          sound: "som_venda_aprovada",
+        }),
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        setStatusMsg({
+          type: "success",
+          text: data.message || "Notificação de teste enviada com sucesso para o seu dispositivo Android.",
+        });
+        await playNotificationSound("som_venda_aprovada");
+      } else if (data.warning) {
+        setStatusMsg({
+          type: "warning",
+          text: data.message || "Nenhum dispositivo registrado. Abra o aplicativo UTM-Track no celular.",
+        });
+      } else {
+        setStatusMsg({
+          type: "error",
+          text: data.error || "Não foi possível enviar a notificação. Verifique a configuração do dispositivo.",
+        });
+      }
+    } catch (err: any) {
+      setStatusMsg({
+        type: "error",
+        text: "Erro de conexão ao solicitar envio do teste.",
+      });
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  return (
+    <div className="bg-white dark:bg-[#081A33] border border-slate-200 dark:border-[#142C52] rounded-2xl p-6 shadow-sm space-y-4">
+      <div className="flex items-center gap-2.5 border-b border-slate-100 dark:border-[#142C52] pb-3">
+        <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500">
+          <Bell className="w-4 h-4" />
+        </div>
+        <div>
+          <h2 className="text-sm font-bold text-gray-900 dark:text-white">
+            Testar Notificações Push
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Envie uma notificação real para verificar se seu dispositivo está configurado corretamente.
+          </p>
+        </div>
+      </div>
+
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1">
+        <p className="text-xs text-slate-600 dark:text-slate-300 max-w-md">
+          Dispara um Push Notification via FCM para o aplicativo UTM-Track instalado no seu celular, tocando o áudio proprietário e abrindo o aplicativo.
+        </p>
+
+        <button
+          onClick={handleSendTest}
+          disabled={isSending}
+          className="px-5 py-2.5 bg-[#0066FF] hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 shrink-0 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          <Bell className={`w-3.5 h-3.5 ${isSending ? "animate-bounce" : ""}`} />
+          {isSending ? "Enviando..." : "🔔 Enviar notificação de teste"}
+        </button>
+      </div>
+
+      {statusMsg && (
+        <div
+          className={`p-3.5 rounded-xl text-xs flex items-start gap-2.5 border animate-in fade-in ${
+            statusMsg.type === "success"
+              ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+              : statusMsg.type === "warning"
+              ? "bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+              : "bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-300 border-red-200 dark:border-red-800"
+          }`}
+        >
+          <div className="font-semibold">{statusMsg.text}</div>
         </div>
       )}
     </div>

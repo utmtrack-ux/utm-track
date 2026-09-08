@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getUserWorkspaceId } from '@/lib/workspace'
+import { purgeTestSales } from '@/lib/integrations/normalizer'
 import {
   calcCPA, calcCPC, calcCPM, calcCTR, calcMargin, calcProfit, calcROAS, calcROI, calcCPI
 } from '@/lib/metrics'
@@ -24,6 +25,9 @@ export async function GET(req: Request) {
     if (!workspaceId) {
       return NextResponse.json({ error: 'No workspace found' }, { status: 404 })
     }
+
+    // Purge any synthetic test sales before metric aggregation
+    await purgeTestSales(workspaceId)
 
     // 1. Consultar Vendas Reais do Período
     const allSales = await prisma.sale.findMany({

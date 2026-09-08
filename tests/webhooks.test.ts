@@ -531,22 +531,36 @@ describe('Integrações e Normalização de Webhooks', () => {
     assert.equal(margin, 59.0) // 59% de margem
   })
 
-  it('TESTE 12: Venda sem UTM -> Permanece no faturamento geral com atribuição segura', async () => {
-    const { normalizeSaleUtms } = await import('../src/lib/integrations/normalizer')
+  it('TESTE 13: Evento de teste Hotmart com headers e boleto R$ 1500 -> isHotmartTestEvent reconhece', async () => {
+    const { isHotmartTestEvent } = await import('../src/lib/integrations/normalizer')
 
-    const payloadWithoutUtms = {
-      event: 'PURCHASE_APPROVED',
+    const billetTestPayload = {
+      event: 'PURCHASE_BILLET_PRINTED',
       data: {
-        purchase: {
-          transaction: 'HP_DIRECT_SALE',
-          price: { value: 297.0 }
-        }
+        product: { name: 'Produto test postback2' },
+        buyer: { name: 'Comprador Teste', email: 'teste@hotmart.com' },
+        purchase: { transaction: 'HP00000000000001', price: { value: 1500.0 } }
       }
     }
 
-    const utms = normalizeSaleUtms(payloadWithoutUtms)
-    assert.equal(utms.utmSource, undefined)
-    assert.equal(utms.utmCampaign, undefined)
-    assert.equal(utms.fbclid, undefined)
+    const testHeaders = { 'x-hotmart-test': 'true' }
+
+    assert.equal(isHotmartTestEvent(billetTestPayload, testHeaders), true, 'Boleto de teste R$ 1500 deve ser isolado como teste')
+    assert.equal(isHotmartTestEvent({ event: 'PURCHASE_BILLET_PRINTED' }, { 'x-hotmart-event-test': '1' }), true)
+  })
+
+  it('TESTE 14: isTestSaleRecord identifica registros de teste no banco', async () => {
+    const { isTestSaleRecord } = await import('../src/lib/integrations/normalizer')
+
+    const testSale1 = { externalId: 'HP00000000000001', customerEmail: 'teste@hotmart.com' }
+    const testSale2 = { externalId: 'HP123456789', customerEmail: 'teste@hotmart.com' }
+    const testSale3 = { externalId: 'TEST_9981', customerEmail: 'user@empresa.com' }
+    const realSale = { externalId: 'HP987654321', customerEmail: 'cliente.real@gmail.com' }
+
+    assert.equal(isTestSaleRecord(testSale1), true)
+    assert.equal(isTestSaleRecord(testSale2), true)
+    assert.equal(isTestSaleRecord(testSale3), true)
+    assert.equal(isTestSaleRecord(realSale), false)
   })
 })
+

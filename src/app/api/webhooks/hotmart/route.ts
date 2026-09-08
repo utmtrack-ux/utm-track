@@ -80,7 +80,11 @@ export async function POST(req: Request) {
     webhookEventId = webhookEvent.id
 
     // 1. Identificar se é evento sintético de teste da Hotmart
-    const isTest = isHotmartTestEvent(payload)
+    const headersObj: Record<string, string | null | undefined> = {}
+    req.headers.forEach((val, key) => {
+      headersObj[key] = val
+    })
+    const isTest = isHotmartTestEvent(payload, headersObj)
 
     if (isTest) {
       // Eventos de teste são salvos tecnicamente na Central de Eventos mas NÃO criam faturamento financeiro falso

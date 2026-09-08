@@ -33,46 +33,186 @@ export interface InternalSale {
 /**
  * Identifica se um payload enviado pela Hotmart é um evento sintético de teste
  */
-export function isHotmartTestEvent(payload: Record<string, unknown>): boolean {
+export function isHotmartTestEvent(
+  payload: Record<string, unknown>,
+  headers?: Record<string, string | null | undefined>
+): boolean {
   if (!payload) return false
 
-  if (payload.is_test === true || payload.test === true || payload.event_type === 'TEST') {
+  // 1. Headers HTTP indicativos de teste
+  if (headers) {
+    const hTest = String(headers['x-hotmart-test'] || headers['x-hotmart-event-test'] || headers['x-test-event'] || '').toLowerCase()
+    if (hTest === 'true' || hTest === '1') return true
+  }
+
+  // 2. Flags explícitas no payload
+  if (
+    payload.is_test === true ||
+    payload.test === true ||
+    payload.sandbox === true ||
+    payload.event_type === 'TEST' ||
+    payload.mode === 'test' ||
+    String(payload.environment || '').toLowerCase() === 'test' ||
+    String(payload.environment || '').toLowerCase() === 'sandbox'
+  ) {
     return true
   }
 
   const data = (payload.data as Record<string, unknown>) || {}
-  if (data.is_test === true || data.test === true) {
+  if (data.is_test === true || data.test === true || data.sandbox === true) {
     return true
   }
 
   const purchase = (data.purchase as Record<string, unknown>) || (payload.purchase as Record<string, unknown>) || {}
-  if (purchase.is_test === true) {
+  if (purchase.is_test === true || purchase.test === true || purchase.sandbox === true) {
     return true
   }
 
   const buyer = (data.buyer as Record<string, unknown>) || (payload.buyer as Record<string, unknown>) || {}
   const buyerEmail = String(buyer.email || '').toLowerCase().trim()
   const buyerName = String(buyer.name || '').toLowerCase().trim()
-  const transaction = String(purchase.transaction || '').toUpperCase().trim()
+  const transaction = String(purchase.transaction || payload.transaction || '').toUpperCase().trim()
   const product = (data.product as Record<string, unknown>) || (payload.product as Record<string, unknown>) || {}
-  const productName = String(product.name || '').toLowerCase().trim()
+  const productName = String(product.name || payload.product_name || '').toLowerCase().trim()
 
-  // Padrões oficiais de teste da ferramenta de webhook da Hotmart
-  if (transaction === 'HP00000000000001' || transaction.startsWith('TEST_') || transaction.includes('TESTE')) {
+  // 3. Transações de teste oficiais da Hotmart e ferramentas de webhook
+  if (
+    transaction === 'HP00000000000001' ||
+    transaction.startsWith('HP00000000') ||
+    transaction.startsWith('TEST_') ||
+    transaction.startsWith('SANDBOX_') ||
+    transaction.startsWith('MOCK_') ||
+    transaction.includes('TEST') ||
+    transaction.includes('TESTE')
+  ) {
     return true
   }
-  if (buyerEmail === 'teste@hotmart.com' || buyerEmail === 'test@hotmart.com' || buyerEmail === 'compradorteste@hotmart.com') {
+
+  // 4. E-mails e compradores de teste da Hotmart
+  if (
+    buyerEmail === 'teste@hotmart.com' ||
+    buyerEmail === 'test@hotmart.com' ||
+    buyerEmail === 'compradorteste@hotmart.com' ||
+    buyerEmail.endsWith('@hotmart.com') ||
+    buyerEmail.endsWith('@example.com') ||
+    buyerEmail.endsWith('@test.com') ||
+    buyerEmail.endsWith('@teste.com') ||
+    buyerEmail.includes('teste@') ||
+    buyerEmail.includes('test@')
+  ) {
     return true
   }
-  if (buyerEmail.includes('@hotmart.com') && (buyerName.includes('teste') || buyerName.includes('comprador'))) {
+
+  // 5. Nomes de produto com marcação de teste
+  if (
+    productName.includes('produto de teste') ||
+    productName.includes('produto test') ||
+    productName.includes('test postback') ||
+    productName.includes('postback2') ||
+    productName.includes('sandbox') ||
+    productName.includes('sample product') ||
+    productName.includes('dummy') ||
+    productName.includes('mock')
+  ) {
     return true
   }
-  if (productName === 'produto de teste' && (buyerEmail.includes('teste') || transaction.startsWith('HP00000000000001'))) {
+
+  if (buyerName.includes('comprador teste') || buyerName.includes('test buyer') || buyerName === 'teste') {
     return true
   }
 
   return false
 }
+
+/**
+ * Identifica se um registro de Sale existente no banco é originário de teste sintético
+ */
+export function isTestSaleRecord(sale: {
+  externalId?: string | null
+  customerEmail?: string | null
+  platform?: string | null
+  items?: Array<{ name?: string | null }> | null
+}): boolean {
+  if (!sale) return false
+  const ext = String(sale.externalId || '').toUpperCase()
+  const email = String(sale.customerEmail || '').toLowerCase()
+
+  if (
+    ext.startsWith('HP00000000') ||
+    ext === 'HP00000000000001' ||
+    ext.startsWith('TEST_') ||
+    ext.startsWith('SANDBOX_') ||
+    ext.startsWith('MOCK_') ||
+    ext.includes('TEST') ||
+    ext.includes('TESTE')
+  ) {
+    return true
+  }
+
+  if (
+    email === 'teste@hotmart.com' ||
+    email === 'test@hotmart.com' ||
+    email === 'compradorteste@hotmart.com' ||
+    email.endsWith('@hotmart.com') ||
+    email.endsWith('@example.com') ||
+    email.endsWith('@test.com') ||
+    email.endsWith('@teste.com') ||
+    email.includes('teste@') ||
+    email.includes('test@')
+  ) {
+    return true
+  }
+
+  if (
+    sale.items &&
+    sale.items.some((i) => {
+      const n = String(i.name || '').toLowerCase()
+      return (
+        n.includes('produto de teste') ||
+        n.includes('produto test') ||
+        n.includes('test postback') ||
+        n.includes('postback2') ||
+        n.includes('sandbox') ||
+        n.includes('sample product') ||
+        n.includes('dummy') ||
+        n.includes('mock')
+      )
+    })
+  ) {
+    return true
+  }
+
+  return false
+}
+
+/**
+ * Remove com segurança do banco de dados qualquer registro de Sale oriundo de testes sintéticos
+ */
+export async function purgeTestSales(workspaceId?: string): Promise<number> {
+  try {
+    const whereClause: Record<string, unknown> = workspaceId ? { workspaceId } : {}
+    const candidateSales = await prisma.sale.findMany({
+      where: whereClause,
+      include: { items: true }
+    })
+
+    const testSaleIds = candidateSales
+      .filter((sale: any) => isTestSaleRecord(sale))
+      .map((sale: any) => sale.id)
+
+    if (testSaleIds.length > 0) {
+      await prisma.sale.deleteMany({
+        where: { id: { in: testSaleIds } }
+      })
+      console.log(`[Purge] Successfully deleted ${testSaleIds.length} synthetic test sale(s).`)
+    }
+    return testSaleIds.length
+  } catch (error) {
+    console.error('[Purge] Error purging test sales:', error)
+    return 0
+  }
+}
+
 
 /**
  * Normaliza valores monetários vindos de qualquer gateway ou payload
