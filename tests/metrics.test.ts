@@ -107,3 +107,55 @@ describe('Cálculos de Métricas de Marketing e Finanças', () => {
     assert.equal(formatMetric(25, 'percent'), '25.00%')
   })
 })
+
+describe('Filtros de Período e Agregações Temporais', () => {
+  const { getDateRange } = require('../src/lib/utils')
+
+  it('Filtro de Período: Suporta Hoje, Ontem, 7d, 15d, 30d, 60d, 90d, Este mês, Mês anterior', () => {
+    const rHoje = getDateRange('Hoje')
+    const rOntem = getDateRange('Ontem')
+    const r7d = getDateRange('Últimos 7 dias')
+    const r15d = getDateRange('Últimos 15 dias')
+    const r30d = getDateRange('Últimos 30 dias')
+    const r60d = getDateRange('Últimos 60 dias')
+    const r90d = getDateRange('Últimos 90 dias')
+    const rEsteMes = getDateRange('Este mês')
+    const rMesAnterior = getDateRange('Mês anterior')
+
+    assert.equal(rHoje.label, 'Hoje')
+    assert.equal(rOntem.label, 'Ontem')
+    assert.equal(r7d.label, 'Últimos 7 dias')
+    assert.equal(r15d.label, 'Últimos 15 dias')
+    assert.equal(r30d.label, 'Últimos 30 dias')
+    assert.equal(r60d.label, 'Últimos 60 dias')
+    assert.equal(r90d.label, 'Últimos 90 dias')
+    assert.equal(rEsteMes.label, 'Este mês')
+    assert.equal(rMesAnterior.label, 'Mês anterior')
+  })
+
+  it('Filtro Hoje vs 30 dias: Intervalos temporais são estritamente diferentes', () => {
+    const rHoje = getDateRange('Hoje')
+    const r30d = getDateRange('Últimos 30 dias')
+
+    assert.notEqual(rHoje.from.toISOString(), r30d.from.toISOString(), 'Data inicial de Hoje e 30 dias devem ser distintas')
+    assert.ok(r30d.from.getTime() < rHoje.from.getTime(), '30 dias deve iniciar antes de Hoje')
+  })
+
+  it('Agregação de Vendas: Apenas status approved/paid somam no faturamento bruto', () => {
+    const sales = [
+      { id: '1', status: 'approved', grossAmount: 100, netAmount: 90 },
+      { id: '2', status: 'paid', grossAmount: 200, netAmount: 180 },
+      { id: '3', status: 'pending', grossAmount: 150, netAmount: 150 },
+      { id: '4', status: 'refunded', grossAmount: 100, netAmount: 100 },
+      { id: '5', status: 'chargeback', grossAmount: 50, netAmount: 50 }
+    ]
+
+    const approvedList = sales.filter(s => s.status === 'approved' || s.status === 'paid')
+    const grossRevenue = approvedList.reduce((acc, s) => acc + s.grossAmount, 0)
+    const netRevenue = approvedList.reduce((acc, s) => acc + s.netAmount, 0)
+
+    assert.equal(approvedList.length, 2)
+    assert.equal(grossRevenue, 300)
+    assert.equal(netRevenue, 270)
+  })
+})

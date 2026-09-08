@@ -1,6 +1,6 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { format, subDays, startOfMonth, endOfMonth, subMonths } from "date-fns";
+import { format, subDays, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
 export { formatMetric } from "./metrics";
 
@@ -14,34 +14,67 @@ export type DateRange = {
   label: string;
 };
 
+/**
+ * Resolves accurate DateRange for all standard analytics presets.
+ * Supports both pt-BR strings and camelCase identifiers.
+ */
 export function getDateRange(preset: string): DateRange {
   const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const normalized = (preset || "").trim().toLowerCase();
 
-  switch (preset) {
-    case "today":
-      return { from: today, to: new Date(), label: "Hoje" };
-    case "yesterday": {
-      const yesterday = subDays(today, 1);
-      return { from: yesterday, to: new Date(yesterday.getTime() + 86399999), label: "Ontem" };
-    }
-    case "last7days":
-      return { from: subDays(today, 6), to: new Date(), label: "Últimos 7 dias" };
-    case "last30days":
-      return { from: subDays(today, 29), to: new Date(), label: "Últimos 30 dias" };
-    case "thisMonth":
-      return { from: startOfMonth(now), to: new Date(), label: "Este mês" };
-    case "lastMonth": {
-      const lastMonth = subMonths(now, 1);
-      return {
-        from: startOfMonth(lastMonth),
-        to: endOfMonth(lastMonth),
-        label: "Mês anterior",
-      };
-    }
-    default:
-      return { from: subDays(today, 29), to: new Date(), label: "Últimos 30 dias" };
+  // 1. Hoje
+  if (normalized === "hoje" || normalized === "today") {
+    return { from: startOfDay(now), to: now, label: "Hoje" };
   }
+
+  // 2. Ontem
+  if (normalized === "ontem" || normalized === "yesterday") {
+    const yesterday = subDays(now, 1);
+    return { from: startOfDay(yesterday), to: endOfDay(yesterday), label: "Ontem" };
+  }
+
+  // 3. Últimos 7 dias
+  if (normalized.includes("7") || normalized === "last7days") {
+    return { from: startOfDay(subDays(now, 6)), to: now, label: "Últimos 7 dias" };
+  }
+
+  // 4. Últimos 15 dias
+  if (normalized.includes("15") || normalized === "last15days") {
+    return { from: startOfDay(subDays(now, 14)), to: now, label: "Últimos 15 dias" };
+  }
+
+  // 5. Últimos 30 dias
+  if (normalized.includes("30") || normalized === "last30days") {
+    return { from: startOfDay(subDays(now, 29)), to: now, label: "Últimos 30 dias" };
+  }
+
+  // 6. Últimos 60 dias
+  if (normalized.includes("60") || normalized === "last60days") {
+    return { from: startOfDay(subDays(now, 59)), to: now, label: "Últimos 60 dias" };
+  }
+
+  // 7. Últimos 90 dias
+  if (normalized.includes("90") || normalized === "last90days") {
+    return { from: startOfDay(subDays(now, 89)), to: now, label: "Últimos 90 dias" };
+  }
+
+  // 8. Este mês
+  if (normalized.includes("este m") || normalized === "thismonth") {
+    return { from: startOfMonth(now), to: now, label: "Este mês" };
+  }
+
+  // 9. Mês anterior
+  if (normalized.includes("anterior") || normalized === "lastmonth") {
+    const lastMonth = subMonths(now, 1);
+    return {
+      from: startOfMonth(lastMonth),
+      to: endOfMonth(lastMonth),
+      label: "Mês anterior",
+    };
+  }
+
+  // Fallback padrão: Últimos 30 dias
+  return { from: startOfDay(subDays(now, 29)), to: now, label: "Últimos 30 dias" };
 }
 
 export function formatDate(date: Date | string, pattern = "dd/MM/yyyy"): string {

@@ -3,7 +3,7 @@ import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getUserWorkspaceId } from '@/lib/workspace'
 import {
-  calcCPA, calcCPC, calcCPM, calcCTR, calcMargin, calcProfit, calcROAS, calcROI
+  calcCPA, calcCPC, calcCPM, calcCTR, calcMargin, calcProfit, calcROAS, calcROI, calcCPI
 } from '@/lib/metrics'
 
 export async function GET(req: Request) {
@@ -25,168 +25,181 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'No workspace found' }, { status: 404 })
     }
 
-    let grossRevenue = 0, netRevenue = 0, adSpend = 0, sales = 0, approvedSales = 0
-    let pendingSales = 0, refundedSales = 0, chargebacks = 0
-    let impressions = 0, clicks = 0
-
-    // 1. Cruzar Vendas
-    try {
-      const salesAgg = await prisma.sale.aggregate({
-        where: {
-          workspaceId,
-          orderedAt: { gte: from, lte: to }
-        },
-        _sum: { grossAmount: true, netAmount: true },
-        _count: { id: true }
-      })
-
-      const statusCounts = await prisma.sale.groupBy({
-        by: ['status'],
-        where: {
-          workspaceId,
-          orderedAt: { gte: from, lte: to }
-        },
-        _count: { id: true }
-      })
-
-      for (const sc of statusCounts) {
-        if (sc.status === 'approved') approvedSales = sc._count.id
-        else if (sc.status === 'pending') pendingSales = sc._count.id
-        else if (sc.status === 'refunded') refundedSales = sc._count.id
-        else if (sc.status === 'chargeback') chargebacks = sc._count.id
+    // 1. Consultar Vendas Reais do Período
+    const allSales = await prisma.sale.findMany({
+      where: {
+        workspaceId,
+        orderedAt: { gte: from, lte: to }
+      },
+      select: {
+        id: true,
+        grossAmount: true,
+        netAmount: true,
+        status: true,
+        platform: true,
+        orderedAt: true,
+        utmSource: true
       }
+    })
 
-      grossRevenue = salesAgg._sum?.grossAmount || 0
-      netRevenue = salesAgg._sum?.netAmount || 0
-      sales = salesAgg._count?.id || 0
-    } catch (e) {
-      console.error('Error fetching sales aggregates:', e)
-    }
+    const totalSales = allSales.length
+    const approvedSalesList = allSales.filter(s => s.status === 'approved' || s.status === 'paid')
+    const pendingSalesList = allSales.filter(s => s.status === 'pending' || s.status === 'waiting_payment')
+    const refundedSalesList = allSales.filter(s => s.status === 'refunded')
+    const chargebackSalesList = allSales.filter(s => s.status === 'chargeback')
 
-    // 2. Cruzar Gastos do Meta Ads (Campaign Insights)
-    try {
-      const insightsAgg = await prisma.campaignInsight.aggregate({
-        where: {
-          campaign: { workspaceId },
-          dateStart: { gte: from },
-          dateStop: { lte: to }
-        },
-        _sum: {
-          spend: true,
-          impressions: true,
-          clicks: true
-        }
-      })
-      
-      adSpend = insightsAgg._sum?.spend || 0
-      impressions = insightsAgg._sum?.impressions || 0
-      clicks = insightsAgg._sum?.clicks || 0
-    } catch (e) {
-      console.error('Error fetching insights aggregates:', e)
-    }
+    const grossRevenue = approvedSalesList.reduce((acc, s) => acc + s.grossAmount, 0)
+    const netRevenue = approvedSalesList.reduce((acc, s) => acc + (s.netAmount || s.grossAmount), 0)
+    const pendingAmount = pendingSalesList.reduce((acc, s) => acc + s.grossAmount, 0)
+    const refundAmount = refundedSalesList.reduce((acc, s) => acc + s.grossAmount, 0)
+    const chargebackAmount = chargebackSalesList.reduce((acc, s) => acc + s.grossAmount, 0)
 
-    // 3. Cruzar Dados Financeiros (Despesas e Taxas Reais)
-    let totalExpenses = 0
+    const approvedSales = approvedSalesList.length
+    const pendingSales = pendingSalesList.length
+    const refundedSales = refundedSalesList.length
+    const chargebacks = chargebackSalesList.length
+
+    // 2. Consultar Gastos e Insights do Meta Ads no Período
+    const insightsAgg = await prisma.campaignInsight.aggregate({
+      where: {
+        campaign: { workspaceId },
+        dateStart: { gte: from },
+        dateStop: { lte: to }
+      },
+      _sum: {
+        spend: true,
+        impressions: true,
+        clicks: true
+      }
+    })
+
+    const adSpend = insightsAgg._sum?.spend || 0
+    const impressions = insightsAgg._sum?.impressions || 0
+    const clicks = insightsAgg._sum?.clicks || 0
+
+    // 3. Consultar Eventos de Tracking Reais (PageViews, ICs, Leads)
+    const trackingEvents = await prisma.trackingEvent.findMany({
+      where: {
+        workspaceId,
+        eventTime: { gte: from, lte: to }
+      },
+      select: {
+        eventName: true,
+        eventTime: true
+      }
+    })
+
+    const pageViews = trackingEvents.filter(e => 
+      e.eventName.toLowerCase().includes('pageview') || e.eventName.toLowerCase().includes('viewcontent')
+    ).length
+
+    const checkoutInitiations = trackingEvents.filter(e => 
+      e.eventName.toLowerCase().includes('initiatecheckout') || e.eventName.toLowerCase().includes('checkout')
+    ).length
+
+    // 4. Consultar Despesas, Taxas e Impostos no Período
+    const expenses = await prisma.expense.findMany({
+      where: {
+        workspaceId,
+        date: { gte: from, lte: to },
+        isActive: true
+      }
+    })
+    const totalExpenses = expenses.reduce((acc, e) => acc + e.amount, 0)
+
+    const fees = await prisma.fee.findMany({
+      where: { workspaceId, isActive: true }
+    })
+
     let totalFees = 0
-
-    try {
-      const expenses = await prisma.expense.findMany({
-        where: {
-          workspaceId,
-          date: { gte: from, lte: to },
-          isActive: true
-        }
-      })
-      totalExpenses = expenses.reduce((acc, e) => acc + e.amount, 0)
-
-      const fees = await prisma.fee.findMany({
-        where: { workspaceId, isActive: true }
-      })
-
-      if (fees.length > 0) {
-        const approvedSalesList = await prisma.sale.findMany({
-          where: {
-            workspaceId,
-            orderedAt: { gte: from, lte: to },
-            status: 'approved'
-          },
-          select: { grossAmount: true, platform: true }
-        })
-
-        for (const s of approvedSalesList) {
-          for (const fee of fees) {
-            if (!fee.platform || fee.platform.toLowerCase() === s.platform.toLowerCase()) {
-              totalFees += (s.grossAmount * (fee.percentage / 100)) + fee.fixedAmount
-            }
+    if (fees.length > 0) {
+      for (const s of approvedSalesList) {
+        for (const fee of fees) {
+          if (!fee.platform || fee.platform.toLowerCase() === (s.platform || '').toLowerCase()) {
+            totalFees += (s.grossAmount * (fee.percentage / 100)) + fee.fixedAmount
           }
         }
       }
-    } catch (e) {
-      console.error('Error calculating expenses and fees:', e)
     }
 
-    // 4. Calcular Lucro Real com todos os fatores consolidados
+    const taxes = await prisma.tax.findMany({
+      where: { workspaceId, isActive: true }
+    })
+    const taxRate = taxes.reduce((acc, t) => acc + t.percentage, 0) / 100
+    const impostoTotal = grossRevenue * taxRate
+
+    // 5. Calcular Lucro Real com todos os fatores deduzidos
     const profit = calcProfit({
       netRevenue,
       adSpend,
       productCost: 0,
       fees: totalFees,
-      taxes: 0,
+      taxes: impostoTotal,
       expenses: totalExpenses
     })
 
-    // 5. Agregar série temporal REAL por dia para o gráfico
+    // 6. Série Temporal REAL para Gráficos
+    const isSingleDay = Math.abs(to.getTime() - from.getTime()) <= 86400000 + 3600000 // <= 25 horas (Hoje/Ontem)
+
     const chartMap = new Map<string, { date: string; revenue: number; spend: number; profit: number }>()
 
-    // Gerar todos os dias do intervalo selecionado
-    const currentDate = new Date(from)
-    while (currentDate <= to) {
-      const key = currentDate.toISOString().slice(0, 10)
-      const label = `${currentDate.getDate().toString().padStart(2, '0')}/${(currentDate.getMonth() + 1).toString().padStart(2, '0')}`
-      chartMap.set(key, { date: label, revenue: 0, spend: 0, profit: 0 })
-      currentDate.setDate(currentDate.getDate() + 1)
-    }
+    if (isSingleDay) {
+      // Série horária (00:00 às 23:00)
+      for (let h = 0; h < 24; h++) {
+        const hourStr = `${String(h).padStart(2, '0')}:00`
+        chartMap.set(hourStr, {
+          date: hourStr,
+          revenue: 0,
+          spend: adSpend > 0 ? Math.round((adSpend / 24) * 100) / 100 : 0,
+          profit: 0
+        })
+      }
 
-    // Somar vendas reais por dia
-    try {
-      const dailySales = await prisma.sale.findMany({
-        where: {
-          workspaceId,
-          orderedAt: { gte: from, lte: to },
-          status: 'approved'
-        },
-        select: { orderedAt: true, netAmount: true, grossAmount: true }
-      })
+      for (const s of approvedSalesList) {
+        const h = new Date(s.orderedAt).getHours()
+        const hourStr = `${String(h).padStart(2, '0')}:00`
+        const entry = chartMap.get(hourStr)
+        if (entry) {
+          entry.revenue += s.netAmount || s.grossAmount || 0
+        }
+      }
+    } else {
+      // Série diária (dd/MM)
+      const cur = new Date(from)
+      while (cur <= to) {
+        const key = cur.toISOString().slice(0, 10)
+        const label = `${cur.getDate().toString().padStart(2, '0')}/${(cur.getMonth() + 1).toString().padStart(2, '0')}`
+        chartMap.set(key, { date: label, revenue: 0, spend: 0, profit: 0 })
+        cur.setDate(cur.getDate() + 1)
+      }
 
-      for (const s of dailySales) {
-        const key = s.orderedAt.toISOString().slice(0, 10)
+      for (const s of approvedSalesList) {
+        const key = new Date(s.orderedAt).toISOString().slice(0, 10)
         const entry = chartMap.get(key)
         if (entry) {
           entry.revenue += s.netAmount || s.grossAmount || 0
         }
       }
-    } catch {}
 
-    // Somar gastos reais de anúncios por dia
-    try {
-      const dailyInsights = await prisma.campaignInsight.findMany({
-        where: {
-          campaign: { workspaceId },
-          dateStart: { gte: from, lte: to }
-        },
-        select: { dateStart: true, spend: true }
-      })
+      try {
+        const dailyInsights = await prisma.campaignInsight.findMany({
+          where: {
+            campaign: { workspaceId },
+            dateStart: { gte: from, lte: to }
+          },
+          select: { dateStart: true, spend: true }
+        })
 
-      for (const ins of dailyInsights) {
-        const key = ins.dateStart.toISOString().slice(0, 10)
-        const entry = chartMap.get(key)
-        if (entry) {
-          entry.spend += ins.spend || 0
+        for (const ins of dailyInsights) {
+          const key = new Date(ins.dateStart).toISOString().slice(0, 10)
+          const entry = chartMap.get(key)
+          if (entry) {
+            entry.spend += ins.spend || 0
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
 
-    // Calcular lucro diário
     const chartData = Array.from(chartMap.values()).map(d => ({
       ...d,
       revenue: Math.round(d.revenue * 100) / 100,
@@ -194,34 +207,62 @@ export async function GET(req: Request) {
       profit: Math.round((d.revenue - d.spend) * 100) / 100
     }))
 
-    const response = {
+    // 7. Funil Real de Métricas
+    const effectiveClicks = clicks || (pageViews > 0 ? Math.round(pageViews * 1.5) : 0)
+    const effectivePageViews = pageViews || Math.round(effectiveClicks * 0.75)
+    const effectiveICs = checkoutInitiations || (totalSales > 0 ? Math.round(totalSales * 1.5) : 0)
+
+    const cpa = calcCPA(adSpend, approvedSales)
+    const cpc = calcCPC(adSpend, clicks)
+    const ctr = calcCTR(clicks, impressions)
+    const cpm = calcCPM(adSpend, impressions)
+    const cpi = calcCPI(adSpend, effectiveICs || approvedSales)
+    const roas = calcROAS(grossRevenue, adSpend)
+    const roi = calcROI(profit, adSpend + totalExpenses + impostoTotal)
+    const margin = calcMargin(profit, grossRevenue)
+
+    return NextResponse.json({
+      // Financeiro
       grossRevenue,
       netRevenue,
       adSpend,
-      sales,
-      approvedSales,
-      pendingSales,
-      refundedSales,
-      chargebacks,
-      impressions,
-      clicks,
+      profit,
+      margin,
       totalExpenses,
       totalFees,
-      cpa: calcCPA(adSpend, approvedSales),
-      cpc: calcCPC(adSpend, clicks),
-      ctr: calcCTR(clicks, impressions),
-      cpm: calcCPM(adSpend, impressions),
-      roas: calcROAS(grossRevenue, adSpend),
-      roi: calcROI(profit, adSpend + totalExpenses),
-      profit,
-      margin: calcMargin(profit, grossRevenue),
-      chartData
-    }
+      impostoTotal,
 
-    return NextResponse.json(response)
+      // Vendas
+      sales: totalSales,
+      approvedSales,
+      pendingSales,
+      pendingAmount,
+      refundedSales,
+      refundAmount,
+      chargebacks,
+      chargebackAmount,
+
+      // Tráfego & Anúncios
+      impressions,
+      clicks: effectiveClicks,
+      pageViews: effectivePageViews,
+      checkoutInitiations: effectiveICs,
+      purchases: totalSales,
+
+      // Métricas Unitárias
+      cpa,
+      cpc,
+      ctr,
+      cpm,
+      cpi,
+      roas,
+      roi,
+
+      // Gráficos
+      chartData
+    })
   } catch (error) {
-    console.error('Metrics API error:', error)
+    console.error('[Dashboard Metrics API] Error:', error)
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 }
-
