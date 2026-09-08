@@ -41,10 +41,31 @@ Este documento detalha como conectar cada plataforma ao UTM-Track.
 
 ## 3. Webhooks Oficiais de Checkout
 
-### 3.1 Hotmart
-- **URL**: `https://utm-track-navy.vercel.app/api/webhooks/hotmart`
-- **Header**: `x-hotmart-hottok`
-- **Eventos**: `PURCHASE_APPROVED`, `PURCHASE_COMPLETE`, `PURCHASE_REFUNDED`, `PURCHASE_CHARGEBACK`, `PURCHASE_CANCELED`.
+### 3.1 Hotmart (Webhooks 2.0 & Legado)
+- **URL Canônica**: `https://utm-track-navy.vercel.app/api/webhooks/hotmart`
+- **Autenticação**: Header `x-hotmart-hottok` validado contra `HOTMART_WEBHOOK_SECRET` ou `Integration.webhookSecret`.
+- **Identificação Multi-tenant**: Suporta query parameter `?workspaceId=<ID>`, `?workspace_id=<ID>`, header `x-workspace-id` ou roteamento automático pelo Workspace principal.
+- **Eventos Suportados**:
+  - `PURCHASE_APPROVED`: Compra aprovada (Cartão, Pix, etc.) -> Status `approved` (Dispara som oficial `som_venda_aprovada.wav`).
+  - `PURCHASE_COMPLETE`: Compra concluída após garantia -> Status `approved`.
+  - `PURCHASE_BILLET_PRINTED`: Boleto/Pix gerado -> Status `pending` (Dispara som oficial `som_pix_gerado.wav` ou `som_venda_pendente.wav`).
+  - `PURCHASE_DELAYED`: Compra atrasada / Em análise -> Status `pending`.
+  - `PURCHASE_REFUNDED`: Compra reembolsada -> Status `refunded` (Dispara som oficial `som_reembolso.wav`).
+  - `PURCHASE_CHARGEBACK`: Contestação / Chargeback -> Status `chargeback` (Dispara som oficial `som_chargeback.wav`).
+  - `PURCHASE_PROTEST`: Bloqueio / Protesto -> Status `chargeback`.
+  - `PURCHASE_CANCELED`: Compra cancelada -> Status `cancelled`.
+  - `PURCHASE_EXPIRED`: Pix/Boleto expirado sem pagamento -> Status `cancelled`.
+  - `PURCHASE_REFUND_REQUESTED`: Pedido de reembolso -> Status `pending`.
+  - `SWITCH_PLAN`: Troca de plano de assinatura -> Status `approved`.
+  - `SUBSCRIPTION_CANCELLATION`: Cancelamento de assinatura -> Status `cancelled`.
+- **Tratamento de Eventos Sintéticos de Teste**:
+  - Identificados automaticamente por `isHotmartTestEvent` (`is_test: true`, `buyer.email: teste@hotmart.com`, `transaction: HP00000000000001`, `product.name: Produto de Teste`).
+  - Registrados tecnicamente na Central de Eventos (`/events`) com status `PROCESSED` e log técnico para auditoria.
+  - **Não geram faturamento financeiro falso nem criam registros de venda distorcidos**.
+- **Idempotência**: Chave `hotmart_${transaction}_${event}` impede reprocessamento ou duplicações em retries da Hotmart.
+- **Normalização Financeira**: Suporta float, string no formato BR (`R$ 197,00`), centavos e deduções automáticas de comissão da Hotmart (`purchase.commission.value`).
+- **Atribuição & UTMs**: Extrai `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, `utm_term`, `src`, `sck`, `fbclid`, `fbp`, `fbc`, `sessionId` a partir de `data.purchase.tracking`.
+- **Ciclo de Observabilidade**: `WebhookEvent` transita por `processing` -> `processed` ou `failed` com payload íntegro exibível na UI.
 
 ### 3.2 Cakto (Oficial)
 - **URL**: `https://utm-track-navy.vercel.app/api/webhooks/cakto`

@@ -23,6 +23,55 @@ export interface InternalSale {
   orderedAt: Date
   approvedAt?: Date
   refundedAt?: Date
+  productInfo?: {
+    id?: string | number
+    name?: string
+    sku?: string
+  }
+}
+
+/**
+ * Identifica se um payload enviado pela Hotmart é um evento sintético de teste
+ */
+export function isHotmartTestEvent(payload: Record<string, unknown>): boolean {
+  if (!payload) return false
+
+  if (payload.is_test === true || payload.test === true || payload.event_type === 'TEST') {
+    return true
+  }
+
+  const data = (payload.data as Record<string, unknown>) || {}
+  if (data.is_test === true || data.test === true) {
+    return true
+  }
+
+  const purchase = (data.purchase as Record<string, unknown>) || (payload.purchase as Record<string, unknown>) || {}
+  if (purchase.is_test === true) {
+    return true
+  }
+
+  const buyer = (data.buyer as Record<string, unknown>) || (payload.buyer as Record<string, unknown>) || {}
+  const buyerEmail = String(buyer.email || '').toLowerCase().trim()
+  const buyerName = String(buyer.name || '').toLowerCase().trim()
+  const transaction = String(purchase.transaction || '').toUpperCase().trim()
+  const product = (data.product as Record<string, unknown>) || (payload.product as Record<string, unknown>) || {}
+  const productName = String(product.name || '').toLowerCase().trim()
+
+  // Padrões oficiais de teste da ferramenta de webhook da Hotmart
+  if (transaction === 'HP00000000000001' || transaction.startsWith('TEST_') || transaction.includes('TESTE')) {
+    return true
+  }
+  if (buyerEmail === 'teste@hotmart.com' || buyerEmail === 'test@hotmart.com' || buyerEmail === 'compradorteste@hotmart.com') {
+    return true
+  }
+  if (buyerEmail.includes('@hotmart.com') && (buyerName.includes('teste') || buyerName.includes('comprador'))) {
+    return true
+  }
+  if (productName === 'produto de teste' && (buyerEmail.includes('teste') || transaction.startsWith('HP00000000000001'))) {
+    return true
+  }
+
+  return false
 }
 
 /**
@@ -157,6 +206,7 @@ export function normalizeSaleStatus(
     s === 'settled' ||
     s === 'pago' ||
     s === 'aprovado' ||
+    s === 'switch_plan' ||
     s.includes('approved') ||
     s.includes('paid')
   ) {
@@ -177,24 +227,30 @@ export function normalizeSaleStatus(
 
   if (
     s === 'purchase_chargeback' ||
+    s === 'purchase_protest' ||
     s === 'chargeback' ||
     s === 'dispute' ||
     s === 'contestacao' ||
-    s.includes('chargeback')
+    s.includes('chargeback') ||
+    s.includes('protest')
   ) {
     return 'chargeback'
   }
 
   if (
     s === 'purchase_canceled' ||
+    s === 'purchase_expired' ||
+    s === 'subscription_cancellation' ||
     s === 'orders/cancelled' ||
     s === 'cancelled' ||
     s === 'canceled' ||
     s === 'recusado' ||
     s === 'falhado' ||
     s === 'failed' ||
+    s === 'expired' ||
     s.includes('cancel') ||
-    s.includes('refused')
+    s.includes('refused') ||
+    s.includes('expired')
   ) {
     return 'cancelled'
   }
@@ -248,7 +304,7 @@ export function normalizeSaleUtms(payload: Record<string, unknown>): {
   if (!payload) return {}
 
   const data = (payload.data as Record<string, unknown>) || {}
-  const purchase = (data.purchase as Record<string, unknown>) || {}
+  const purchase = (data.purchase as Record<string, unknown>) || (payload.purchase as Record<string, unknown>) || {}
   const tracking = (purchase.tracking as Record<string, unknown>) || (payload.tracking as Record<string, unknown>) || (payload.utms as Record<string, unknown>) || (payload.utm as Record<string, unknown>) || (data.utms as Record<string, unknown>) || {}
   const noteAttributes = (payload.note_attributes as Array<{ name: string; value: string }>) || []
 
@@ -258,15 +314,15 @@ export function normalizeSaleUtms(payload: Record<string, unknown>): {
   }
 
   return {
-    utmSource: String(tracking.utm_source || tracking.source || tracking.src || payload.utm_source || payload.src || getAttr('utm_source') || '').trim() || undefined,
+    utmSource: String(tracking.utm_source || tracking.source || tracking.src || tracking.sck || payload.utm_source || payload.src || getAttr('utm_source') || '').trim() || undefined,
     utmMedium: String(tracking.utm_medium || tracking.medium || payload.utm_medium || getAttr('utm_medium') || '').trim() || undefined,
     utmCampaign: String(tracking.utm_campaign || tracking.campaign || payload.utm_campaign || getAttr('utm_campaign') || '').trim() || undefined,
     utmContent: String(tracking.utm_content || tracking.content || payload.utm_content || getAttr('utm_content') || '').trim() || undefined,
     utmTerm: String(tracking.utm_term || tracking.term || payload.utm_term || getAttr('utm_term') || '').trim() || undefined,
     fbclid: String(tracking.fbclid || payload.fbclid || getAttr('fbclid') || '').trim() || undefined,
-    fbp: String(tracking.fbp || payload.fbp || getAttr('_fbp') || '').trim() || undefined,
-    fbc: String(tracking.fbc || payload.fbc || getAttr('_fbc') || '').trim() || undefined,
-    sessionId: String(tracking.sessionId || payload.sessionId || payload._utmt_sid || '').trim() || undefined,
+    fbp: String(tracking.fbp || tracking._fbp || payload.fbp || payload._fbp || getAttr('_fbp') || '').trim() || undefined,
+    fbc: String(tracking.fbc || tracking._fbc || payload.fbc || payload._fbc || getAttr('_fbc') || '').trim() || undefined,
+    sessionId: String(tracking.sessionId || tracking._utmt_sid || payload.sessionId || payload._utmt_sid || '').trim() || undefined,
   }
 }
 
@@ -279,7 +335,29 @@ export async function upsertSale(sale: InternalSale) {
         externalId: sale.externalId 
       } 
     },
-    create: { ...sale },
+    create: {
+      workspaceId: sale.workspaceId,
+      platform: sale.platform,
+      externalId: sale.externalId,
+      externalRef: sale.externalRef,
+      status: sale.status,
+      grossAmount: sale.grossAmount,
+      netAmount: sale.netAmount,
+      currency: sale.currency,
+      customerEmail: sale.customerEmail,
+      utmSource: sale.utmSource,
+      utmMedium: sale.utmMedium,
+      utmCampaign: sale.utmCampaign,
+      utmContent: sale.utmContent,
+      utmTerm: sale.utmTerm,
+      fbclid: sale.fbclid,
+      fbp: sale.fbp,
+      fbc: sale.fbc,
+      sessionId: sale.sessionId,
+      orderedAt: sale.orderedAt,
+      approvedAt: sale.approvedAt,
+      refundedAt: sale.refundedAt
+    },
     update: { 
       status: sale.status, 
       grossAmount: sale.grossAmount,
@@ -299,12 +377,74 @@ export async function upsertSale(sale: InternalSale) {
       sessionId: sale.sessionId
     }
   })
+
+  // Upsert de Produto e SaleItem quando informados
+  if (sale.productInfo?.name) {
+    try {
+      let productId: string | undefined
+      if (sale.productInfo.id) {
+        const extProdId = String(sale.productInfo.id)
+        let product = await prisma.product.findFirst({
+          where: {
+            workspaceId: sale.workspaceId,
+            platform: sale.platform,
+            externalId: extProdId
+          }
+        })
+
+        if (!product) {
+          product = await prisma.product.create({
+            data: {
+              workspaceId: sale.workspaceId,
+              platform: sale.platform,
+              externalId: extProdId,
+              name: String(sale.productInfo.name),
+              sku: sale.productInfo.sku,
+              price: sale.grossAmount,
+              currency: sale.currency
+            }
+          })
+        } else {
+          product = await prisma.product.update({
+            where: { id: product.id },
+            data: {
+              name: String(sale.productInfo.name),
+              sku: sale.productInfo.sku,
+              price: sale.grossAmount,
+              updatedAt: new Date()
+            }
+          })
+        }
+        productId = product.id
+      }
+
+      const existingItem = await prisma.saleItem.findFirst({
+        where: { saleId: result.id }
+      })
+      if (!existingItem) {
+        await prisma.saleItem.create({
+          data: {
+            saleId: result.id,
+            productId,
+            externalProductId: sale.productInfo.id ? String(sale.productInfo.id) : undefined,
+            name: String(sale.productInfo.name),
+            sku: sale.productInfo.sku,
+            quantity: 1,
+            unitPrice: sale.grossAmount,
+            totalPrice: sale.grossAmount
+          }
+        })
+      }
+    } catch (e) {
+      console.error('[upsertSale] Error upserting product/saleItem:', e)
+    }
+  }
   
   // Try attribution
   try { 
     await attemptAttribution(result.id) 
   } catch (e) { 
-    console.error('Attribution error:', e) 
+    console.error('[upsertSale] Attribution error:', e) 
   }
   
   return result

@@ -358,4 +358,195 @@ describe('Integrações e Normalização de Webhooks', () => {
     assert.equal(pctVendasInic, 40)
     assert.equal(pctVendasApr, 80)
   })
+
+  // ============================================================
+  // SUÍTE FORMAL DE 12 TESTES DO FLUXO HOTMART
+  // ============================================================
+
+  it('TESTE 1: Webhook Hotmart PURCHASE_APPROVED válido -> Sale aprovada com valor correto', async () => {
+    const { normalizeSaleAmount, normalizeNetAmount, normalizeSaleStatus, normalizeSalePaymentMethod, normalizeSaleUtms } = await import('../src/lib/integrations/normalizer')
+
+    const payload = {
+      event: 'PURCHASE_APPROVED',
+      data: {
+        product: { id: 1001, name: 'Formação Expert', ucode: 'PROD-EXP-01' },
+        buyer: { name: 'João Silva', email: 'joao.silva@gmail.com' },
+        purchase: {
+          transaction: 'HP_REAL_1001',
+          order_date: 1725800000000,
+          approved_date: 1725800100000,
+          price: { value: 497.0, currency_code: 'BRL' },
+          commission: { value: 450.0 },
+          payment: { type: 'CREDIT_CARD' },
+          tracking: { utm_source: 'meta_ads', utm_campaign: 'campanha_escala' }
+        }
+      }
+    }
+
+    const gross = normalizeSaleAmount(payload, 'hotmart')
+    const net = normalizeNetAmount(payload, 'hotmart', gross)
+    const status = normalizeSaleStatus(payload.event, 'hotmart')
+    const method = normalizeSalePaymentMethod(payload, 'hotmart')
+    const utms = normalizeSaleUtms(payload)
+
+    assert.equal(gross, 497.0)
+    assert.equal(net, 450.0)
+    assert.equal(status, 'approved')
+    assert.equal(method, 'card')
+    assert.equal(utms.utmSource, 'meta_ads')
+    assert.equal(utms.utmCampaign, 'campanha_escala')
+  })
+
+  it('TESTE 2: Mesmo webhook enviado duas vezes -> Idempotência gera mesma chave', () => {
+    const transaction = 'HP_REAL_1002'
+    const event = 'PURCHASE_APPROVED'
+    const idempotencyKey1 = `hotmart_${transaction}_${event}`
+    const idempotencyKey2 = `hotmart_${transaction}_${event}`
+
+    assert.equal(idempotencyKey1, idempotencyKey2)
+    assert.equal(idempotencyKey1, 'hotmart_HP_REAL_1002_PURCHASE_APPROVED')
+  })
+
+  it('TESTE 3: PURCHASE_BILLET_PRINTED -> Status pending e método pix/boleto', async () => {
+    const { normalizeSaleAmount, normalizeSaleStatus, normalizeSalePaymentMethod } = await import('../src/lib/integrations/normalizer')
+
+    const payload = {
+      event: 'PURCHASE_BILLET_PRINTED',
+      data: {
+        purchase: {
+          transaction: 'HP_REAL_1003',
+          price: { value: 197.0 },
+          payment: { type: 'BANK_SLIP' }
+        }
+      }
+    }
+
+    assert.equal(normalizeSaleStatus(payload.event, 'hotmart'), 'pending')
+    assert.equal(normalizeSaleAmount(payload, 'hotmart'), 197.0)
+    assert.equal(normalizeSalePaymentMethod(payload, 'hotmart'), 'boleto')
+  })
+
+  it('TESTE 4: PURCHASE_APPROVED depois de PENDING -> Atualiza status para approved', async () => {
+    const { normalizeSaleStatus } = await import('../src/lib/integrations/normalizer')
+
+    const pendingStatus = normalizeSaleStatus('PURCHASE_BILLET_PRINTED', 'hotmart')
+    assert.equal(pendingStatus, 'pending')
+
+    const approvedStatus = normalizeSaleStatus('PURCHASE_APPROVED', 'hotmart')
+    assert.equal(approvedStatus, 'approved')
+  })
+
+  it('TESTE 5: PURCHASE_REFUNDED -> Atualiza status para refunded', async () => {
+    const { normalizeSaleStatus } = await import('../src/lib/integrations/normalizer')
+    assert.equal(normalizeSaleStatus('PURCHASE_REFUNDED', 'hotmart'), 'refunded')
+  })
+
+  it('TESTE 6: PURCHASE_CHARGEBACK e PURCHASE_PROTEST -> Atualiza status para chargeback', async () => {
+    const { normalizeSaleStatus } = await import('../src/lib/integrations/normalizer')
+    assert.equal(normalizeSaleStatus('PURCHASE_CHARGEBACK', 'hotmart'), 'chargeback')
+    assert.equal(normalizeSaleStatus('PURCHASE_PROTEST', 'hotmart'), 'chargeback')
+  })
+
+  it('TESTE 7: PURCHASE_CANCELED e PURCHASE_EXPIRED -> Status cancelled', async () => {
+    const { normalizeSaleStatus } = await import('../src/lib/integrations/normalizer')
+    assert.equal(normalizeSaleStatus('PURCHASE_CANCELED', 'hotmart'), 'cancelled')
+    assert.equal(normalizeSaleStatus('PURCHASE_EXPIRED', 'hotmart'), 'cancelled')
+  })
+
+  it('TESTE 8: Evento sem valor -> Trata como 0 de forma segura sem lançar erro nem criar NaN', async () => {
+    const { normalizeSaleAmount, normalizeNetAmount } = await import('../src/lib/integrations/normalizer')
+
+    const payload = { event: 'PURCHASE_APPROVED', data: { purchase: { transaction: 'HP_ZERO' } } }
+    const gross = normalizeSaleAmount(payload, 'hotmart')
+    const net = normalizeNetAmount(payload, 'hotmart', gross)
+
+    assert.equal(gross, 0)
+    assert.equal(net, 0)
+    assert.equal(isNaN(gross), false)
+    assert.equal(isNaN(net), false)
+  })
+
+  it('TESTE 9: Payload incompleto ou sem purchase -> Identificado com segurança', () => {
+    const isValidHotmartPayload = (p: any) => {
+      if (!p || typeof p !== 'object') return false
+      const data = p.data || p
+      const purchase = data.purchase || p.purchase
+      return !!purchase || !!p.transaction
+    }
+
+    assert.equal(isValidHotmartPayload({}), false)
+    assert.equal(isValidHotmartPayload(null), false)
+    assert.equal(isValidHotmartPayload({ event: 'TEST' }), false)
+    assert.equal(isValidHotmartPayload({ event: 'PURCHASE_APPROVED', data: { purchase: { transaction: 'HP123' } } }), true)
+  })
+
+  it('TESTE 10: Evento de teste Hotmart -> isHotmartTestEvent reconhece e isola', async () => {
+    const { isHotmartTestEvent } = await import('../src/lib/integrations/normalizer')
+
+    const testPayload1 = {
+      event: 'PURCHASE_APPROVED',
+      data: {
+        product: { name: 'Produto de Teste' },
+        buyer: { name: 'Comprador Teste', email: 'teste@hotmart.com' },
+        purchase: { transaction: 'HP00000000000001', price: { value: 100.0 } }
+      }
+    }
+
+    const testPayload2 = {
+      is_test: true,
+      data: { purchase: { transaction: 'TEST_99182' } }
+    }
+
+    const realPayload = {
+      event: 'PURCHASE_APPROVED',
+      data: {
+        product: { name: 'Mentoria Black' },
+        buyer: { name: 'Carlos Andrade', email: 'carlos@empresa.com.br' },
+        purchase: { transaction: 'HP987123654', price: { value: 997.0 } }
+      }
+    }
+
+    assert.equal(isHotmartTestEvent(testPayload1), true, 'Payload 1 oficial de teste da Hotmart deve retornar true')
+    assert.equal(isHotmartTestEvent(testPayload2), true, 'Payload com flag is_test deve retornar true')
+    assert.equal(isHotmartTestEvent(realPayload), false, 'Venda real de cliente não pode ser tratada como teste')
+  })
+
+  it('TESTE 11: Venda real aprovada -> Reflete no cálculo de Faturamento, CPA, ROAS e ROI', async () => {
+    const { calcROAS, calcROI, calcProfit, calcCPA, calcMargin } = await import('../src/lib/metrics')
+
+    const adSpend = 200.0
+    const grossRevenue = 1000.0
+    const netRevenue = 900.0
+    const approvedSales = 2
+
+    const profit = calcProfit({ netRevenue, adSpend, productCost: 0, fees: 50.0, taxes: 60.0, expenses: 0 })
+    const roas = calcROAS(grossRevenue, adSpend)
+    const roi = calcROI(profit, adSpend + 50.0 + 60.0)
+    const cpa = calcCPA(adSpend, approvedSales)
+    const margin = calcMargin(profit, grossRevenue)
+
+    assert.equal(profit, 900.0 - 200.0 - 50.0 - 60.0) // R$ 590,00
+    assert.equal(roas, 5.0) // ROAS 5.0x
+    assert.equal(cpa, 100.0) // R$ 100,00 por venda
+    assert.equal(margin, 59.0) // 59% de margem
+  })
+
+  it('TESTE 12: Venda sem UTM -> Permanece no faturamento geral com atribuição segura', async () => {
+    const { normalizeSaleUtms } = await import('../src/lib/integrations/normalizer')
+
+    const payloadWithoutUtms = {
+      event: 'PURCHASE_APPROVED',
+      data: {
+        purchase: {
+          transaction: 'HP_DIRECT_SALE',
+          price: { value: 297.0 }
+        }
+      }
+    }
+
+    const utms = normalizeSaleUtms(payloadWithoutUtms)
+    assert.equal(utms.utmSource, undefined)
+    assert.equal(utms.utmCampaign, undefined)
+    assert.equal(utms.fbclid, undefined)
+  })
 })

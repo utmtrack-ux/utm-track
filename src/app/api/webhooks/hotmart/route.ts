@@ -6,11 +6,13 @@ import {
   normalizeSaleStatus, 
   normalizeSalePaymentMethod, 
   normalizeSaleUtms, 
+  isHotmartTestEvent,
   upsertSale 
 } from '@/lib/integrations/normalizer'
 import { createSaleNotification, SaleNotificationType } from '@/lib/notifications/service'
 
 export async function POST(req: Request) {
+  let webhookEventId: string | null = null
   try {
     const hottok = req.headers.get('x-hotmart-hottok')
     if (process.env.HOTMART_WEBHOOK_SECRET && hottok && hottok !== process.env.HOTMART_WEBHOOK_SECRET) {
@@ -20,12 +22,20 @@ export async function POST(req: Request) {
     const { searchParams } = new URL(req.url)
     const queryWs = searchParams.get('workspaceId') || searchParams.get('workspace_id') || req.headers.get('x-workspace-id')
 
-    const payload = await req.json()
-    const { event, data } = payload
-    
-    if (!data || !data.purchase) {
-      return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
+    const payload = await req.json().catch(() => null)
+    if (!payload) {
+      return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400 })
     }
+
+    const event = String(payload.event || payload.event_type || 'PURCHASE_APPROVED')
+    const data = (payload.data as Record<string, unknown>) || payload
+    const purchase = (data.purchase as Record<string, unknown>) || (payload.purchase as Record<string, unknown>) || {}
+    
+    if (!purchase && !payload.transaction) {
+      return NextResponse.json({ error: 'Invalid payload: purchase object missing' }, { status: 400 })
+    }
+
+    const transaction = String(purchase.transaction || payload.transaction || payload.id || `HOTMART_${Date.now()}`)
 
     let workspaceId: string | null | undefined = queryWs
     if (!workspaceId) {
@@ -41,42 +51,84 @@ export async function POST(req: Request) {
       workspaceId = defaultWs.id
     }
 
-    const idempotencyKey = `hotmart_${data.purchase.transaction}_${event}`
+    const idempotencyKey = `hotmart_${transaction}_${event}`
     
     const existingWebhook = await prisma.webhookEvent.findUnique({
       where: { idempotencyKey }
     })
 
-    if (existingWebhook) {
-      return NextResponse.json({ success: true, message: 'Already processed' })
+    if (existingWebhook && existingWebhook.status === 'processed') {
+      return NextResponse.json({ success: true, message: 'Already processed', idempotencyKey })
     }
 
+    // Registrar evento com status 'processing'
+    const webhookEvent = await prisma.webhookEvent.upsert({
+      where: { idempotencyKey },
+      create: {
+        idempotencyKey,
+        workspaceId,
+        source: 'hotmart',
+        eventType: event,
+        status: 'processing',
+        payload: JSON.stringify(payload)
+      },
+      update: {
+        status: 'processing',
+        receivedAt: new Date()
+      }
+    })
+    webhookEventId = webhookEvent.id
+
+    // 1. Identificar se é evento sintético de teste da Hotmart
+    const isTest = isHotmartTestEvent(payload)
+
+    if (isTest) {
+      // Eventos de teste são salvos tecnicamente na Central de Eventos mas NÃO criam faturamento financeiro falso
+      await prisma.webhookEvent.update({
+        where: { id: webhookEvent.id },
+        data: {
+          status: 'processed',
+          processedAt: new Date(),
+          processedData: JSON.stringify({
+            isTest: true,
+            event,
+            transaction,
+            message: 'Hotmart test event processed technically without creating financial sale'
+          })
+        }
+      })
+
+      return NextResponse.json({
+        success: true,
+        isTest: true,
+        message: 'Hotmart test event processed technically. No false financial sale created.'
+      })
+    }
+
+    // 2. Processamento completo de Evento Real de Venda
     const status = normalizeSaleStatus(event, 'hotmart')
     const paymentMethod = normalizeSalePaymentMethod(payload, 'hotmart')
     const utms = normalizeSaleUtms(payload)
     const grossPrice = normalizeSaleAmount(payload, 'hotmart')
     const netPrice = normalizeNetAmount(payload, 'hotmart', grossPrice)
 
-    await prisma.webhookEvent.create({
-      data: {
-        idempotencyKey,
-        workspaceId,
-        source: 'hotmart',
-        eventType: event,
-        payload: JSON.stringify(payload)
-      }
-    })
+    const product = (data.product as Record<string, unknown>) || (payload.product as Record<string, unknown>) || {}
+    const buyer = (data.buyer as Record<string, unknown>) || (payload.buyer as Record<string, unknown>) || {}
+    const priceObj = (purchase.price as Record<string, unknown>) || {}
+
+    const orderDate = purchase.order_date ? new Date(purchase.order_date as number | string) : new Date()
+    const approvedDate = purchase.approved_date ? new Date(purchase.approved_date as number | string) : undefined
 
     const sale = await upsertSale({
       workspaceId,
       platform: 'hotmart',
-      externalId: String(data.purchase.transaction),
+      externalId: transaction,
       externalRef: paymentMethod,
       status,
       grossAmount: grossPrice,
       netAmount: netPrice,
-      currency: data.purchase.price ? String(data.purchase.price.currency_code || 'BRL') : 'BRL',
-      customerEmail: data.buyer ? String(data.buyer.email) : undefined,
+      currency: String(priceObj.currency_code || purchase.currency || 'BRL'),
+      customerEmail: buyer.email ? String(buyer.email) : undefined,
       utmSource: utms.utmSource,
       utmMedium: utms.utmMedium,
       utmCampaign: utms.utmCampaign,
@@ -86,9 +138,31 @@ export async function POST(req: Request) {
       fbp: utms.fbp,
       fbc: utms.fbc,
       sessionId: utms.sessionId,
-      orderedAt: new Date(data.purchase.order_date || Date.now()),
-      approvedAt: status === 'approved' ? new Date(data.purchase.approved_date || Date.now()) : undefined,
-      refundedAt: status === 'refunded' ? new Date() : undefined
+      orderedAt: isNaN(orderDate.getTime()) ? new Date() : orderDate,
+      approvedAt: status === 'approved' ? (approvedDate && !isNaN(approvedDate.getTime()) ? approvedDate : new Date()) : undefined,
+      refundedAt: status === 'refunded' ? new Date() : undefined,
+      productInfo: product.name ? {
+        id: product.id ? String(product.id) : undefined,
+        name: String(product.name),
+        sku: product.ucode ? String(product.ucode) : undefined
+      } : undefined
+    })
+
+    // Atualizar WebhookEvent para status 'processed'
+    await prisma.webhookEvent.update({
+      where: { id: webhookEvent.id },
+      data: {
+        status: 'processed',
+        processedAt: new Date(),
+        processedData: JSON.stringify({
+          saleId: sale.id,
+          transaction,
+          status,
+          grossAmount: grossPrice,
+          netAmount: netPrice,
+          isTest: false
+        })
+      }
     })
 
     // Disparo de notificação oficial UTM-Track com som correspondente
@@ -96,22 +170,39 @@ export async function POST(req: Request) {
     if (status === 'approved') notifType = 'sale_approved'
     else if (status === 'refunded') notifType = 'refund'
     else if (status === 'chargeback') notifType = 'chargeback'
-    else if (event.includes('PIX') || paymentMethod === 'pix') notifType = 'pix_pending'
+    else if (event.includes('PIX') || paymentMethod === 'pix' || event === 'PURCHASE_BILLET_PRINTED') {
+      notifType = paymentMethod === 'pix' || event.includes('PIX') ? 'pix_pending' : 'sale_pending'
+    }
 
     await createSaleNotification({
       workspaceId,
       type: notifType,
       amount: grossPrice,
-      currency: data.purchase.price ? String(data.purchase.price.currency_code || 'BRL') : 'BRL',
+      currency: String(priceObj.currency_code || purchase.currency || 'BRL'),
       platform: 'Hotmart',
-      product: data.product?.name,
+      product: product.name ? String(product.name) : undefined,
       saleId: sale.id,
-      transactionId: data.purchase.transaction,
-    }).catch(e => console.error('Notification dispatch error:', e))
+      transactionId: transaction,
+    }).catch(e => console.error('[Hotmart Webhook] Notification dispatch error:', e))
 
-    return NextResponse.json({ success: true, saleId: sale.id })
+    return NextResponse.json({ 
+      success: true, 
+      saleId: sale.id, 
+      status: sale.status,
+      isTest: false 
+    })
   } catch (error) {
-    console.error('Hotmart webhook error:', error)
+    console.error('[Hotmart Webhook] Error:', error)
+    if (webhookEventId) {
+      await prisma.webhookEvent.update({
+        where: { id: webhookEventId },
+        data: {
+          status: 'failed',
+          errorMessage: error instanceof Error ? error.message : 'Unknown error',
+          processedAt: new Date()
+        }
+      }).catch(() => {})
+    }
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 }

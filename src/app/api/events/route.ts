@@ -94,7 +94,7 @@ export async function GET(req: Request) {
           source: w.source,
           status: w.status,
           createdAt: w.receivedAt,
-          details: w.payload.slice(0, 100)
+          details: w.payload
         })
       })
       total += webhookTotal
