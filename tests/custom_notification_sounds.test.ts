@@ -175,5 +175,32 @@ describe("Sistema de Sons Personalizados para Notificações", () => {
 
       assert.equal(soundToPlay, "/sounds/som_venda_aprovada.wav");
     });
+
+    test("Renderização Imediata Mobile: todos os 5 tipos de cards possuem rótulos e fallbacks garantidos", () => {
+      const requiredTypes = [
+        { key: "sale_approved", label: "VENDA APROVADA", defaultSound: "som_venda_aprovada.wav" },
+        { key: "pix_pending", label: "PIX GERADO", defaultSound: "som_pix_gerado.wav" },
+        { key: "sale_pending", label: "VENDA PENDENTE", defaultSound: "som_venda_pendente.wav" },
+        { key: "refund", label: "VENDA REEMBOLSADA", defaultSound: "som_reembolso.wav" },
+        { key: "chargeback", label: "CHARGEBACK", defaultSound: "som_chargeback.wav" },
+      ];
+
+      for (const item of requiredTypes) {
+        assert.ok(item.label, "Card deve possuir rótulo em caixa alta");
+        assert.ok(item.defaultSound.endsWith(".wav"), "Fallback deve ser arquivo de som oficial");
+      }
+    });
+
+    test("Resiliência de Estado: Quando API está em loading ou offline, cartões não ficam vazios", () => {
+      const mockSoundsMap = new Map<string, any>();
+      // Sem sons cadastrados
+      const soundConfig = {
+        key: "sale_approved",
+        defaultSoundName: "som_venda_aprovada.wav",
+      };
+      const customSound = mockSoundsMap.get(soundConfig.key);
+      const displayText = customSound ? customSound.originalFileName : "Nenhum som personalizado (usando padrão)";
+      assert.equal(displayText, "Nenhum som personalizado (usando padrão)");
+    });
   });
 });

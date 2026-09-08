@@ -22,6 +22,7 @@ import {
   Info,
   AlertTriangle,
   Radio,
+  FileAudio,
 } from "lucide-react";
 import { UtmTrackSymbol } from "@/components/brand/symbol";
 import {
@@ -138,23 +139,37 @@ export default function NotificationSettingsPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Queries
-  const { data: prefData, isLoading: prefLoading } = useQuery<{ preferences: Preferences }>({
+  // Queries com fallback resiliente
+  const {
+    data: prefData,
+    isLoading: prefLoading,
+    isError: prefError,
+    refetch: refetchPrefs,
+  } = useQuery<{ preferences: Preferences }>({
     queryKey: ["notification-preferences"],
     queryFn: async () => {
       const res = await fetch("/api/notifications/preferences");
       if (!res.ok) throw new Error("Erro ao carregar preferências");
       return res.json();
     },
+    retry: 2,
+    staleTime: 10000,
   });
 
-  const { data: soundData, isLoading: soundsLoading } = useQuery<{ sounds: NotificationSoundRecord[] }>({
+  const {
+    data: soundData,
+    isLoading: soundsLoading,
+    isError: soundsError,
+    refetch: refetchSounds,
+  } = useQuery<{ sounds: NotificationSoundRecord[] }>({
     queryKey: ["notification-sounds"],
     queryFn: async () => {
       const res = await fetch("/api/notification-sounds");
       if (!res.ok) throw new Error("Erro ao carregar sons personalizados");
       return res.json();
     },
+    retry: 2,
+    staleTime: 10000,
   });
 
   const [prefs, setPrefs] = useState<Preferences>({
@@ -194,7 +209,7 @@ export default function NotificationSettingsPage() {
         setCustomSoundsEnabled(resData.preferences.useCustomSounds);
       }
       queryClient.invalidateQueries({ queryKey: ["notification-preferences"] });
-      setSuccessMsg("Preferências atualizadas com sucesso!");
+      setSuccessMsg("Preferências salvas com sucesso!");
       setTimeout(() => setSuccessMsg(null), 4000);
     },
     onError: (err: any) => {
@@ -219,259 +234,285 @@ export default function NotificationSettingsPage() {
     }
   }
 
+  const hasAnyApiError = prefError || soundsError;
+
   return (
-    <div className="p-4 sm:p-6 max-w-5xl space-y-6">
+    <div className="p-3 sm:p-6 max-w-5xl space-y-5 pb-20 sm:pb-8">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5 sm:gap-3">
             <Link
               href="/settings"
-              className="p-1.5 rounded-lg border border-slate-200 dark:border-[#142C52] text-slate-500 hover:text-slate-900 dark:hover:text-white transition"
+              className="p-2 rounded-xl border border-slate-200 dark:border-[#142C52] text-slate-500 hover:text-slate-900 dark:hover:text-white transition bg-white dark:bg-[#081A33]"
+              title="Voltar às configurações"
             >
               <ArrowLeft className="w-4 h-4" />
             </Link>
             <UtmTrackSymbol size={28} />
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white tracking-tight">
               Notificações e Sons
             </h1>
           </div>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
             Escolha o áudio de cada tipo de notificação, faça upload direto do celular e personalize sua experiência.
           </p>
         </div>
 
-        {successMsg && (
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 text-xs font-semibold animate-in fade-in">
-            <Check className="w-4 h-4" /> {successMsg}
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {prefLoading && (
+            <span className="text-xs text-slate-400 flex items-center gap-1.5">
+              <RefreshCw className="w-3 h-3 animate-spin text-[#0066FF]" />
+              Sincronizando...
+            </span>
+          )}
 
-        {errorMsg && (
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800/60 text-xs font-semibold animate-in fade-in">
-            <AlertTriangle className="w-4 h-4" /> {errorMsg}
-          </div>
-        )}
+          {successMsg && (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 text-xs font-semibold animate-in fade-in">
+              <Check className="w-3.5 h-3.5" /> {successMsg}
+            </div>
+          )}
+
+          {errorMsg && (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800/60 text-xs font-semibold animate-in fade-in">
+              <AlertTriangle className="w-3.5 h-3.5" /> {errorMsg}
+            </div>
+          )}
+        </div>
       </div>
 
-      {prefLoading || soundsLoading ? (
-        <div className="space-y-4">
-          <div className="h-44 bg-slate-100 dark:bg-[#081A33] rounded-2xl animate-pulse" />
-          <div className="h-72 bg-slate-100 dark:bg-[#081A33] rounded-2xl animate-pulse" />
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {/* Seção Principal: Meus Sons de Notificação */}
-          <div className="bg-white dark:bg-[#081A33] border border-slate-200 dark:border-[#142C52] rounded-2xl p-4 sm:p-6 shadow-sm space-y-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-[#142C52] pb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-[#0066FF]/10 text-[#0066FF]">
-                  <Music className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="text-base font-bold text-gray-900 dark:text-white">
-                    Meus sons de notificação
-                  </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Escolha um som diferente para cada tipo de notificação. Você pode enviar um áudio diretamente do seu celular.
-                  </p>
-                </div>
-              </div>
-
-              {/* Master Custom Sounds Switch */}
-              <div
-                onClick={() => handleToggle("useCustomSounds")}
-                className={`flex items-center justify-between gap-3 px-3.5 py-2 rounded-xl border cursor-pointer transition-all ${
-                  prefs.useCustomSounds
-                    ? "bg-[#0066FF]/10 border-[#0066FF] text-[#0066FF]"
-                    : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-[#142C52] text-slate-500"
-                }`}
-              >
-                <div className="text-xs font-semibold">
-                  Usar meus sons personalizados
-                </div>
-                <input
-                  type="checkbox"
-                  checked={prefs.useCustomSounds}
-                  onChange={() => {}}
-                  className="w-4 h-4 rounded text-[#0066FF] focus:ring-[#0066FF] border-slate-300 dark:border-[#142C52] cursor-pointer pointer-events-none"
-                />
-              </div>
-            </div>
-
-            {!prefs.useCustomSounds && (
-              <div className="p-3.5 rounded-xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/70 dark:border-blue-800/40 text-xs text-blue-800 dark:text-blue-300 flex items-start gap-2.5">
-                <Info className="w-4 h-4 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
-                <div>
-                  <span className="font-semibold">Modo padrão ativado:</span> O aplicativo está utilizando os sons característicos oficiais do UTM-Track. Ao ativar <strong>"Usar meus sons personalizados"</strong>, seus arquivos enviados substituirão os sons originais.
-                </div>
-              </div>
-            )}
-
-            {/* Grid dos 5 tipos de notificação */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {NOTIFICATION_TYPES_CONFIG.map((config) => {
-                const customSound = soundsMap.get(config.key);
-                return (
-                  <CustomSoundCard
-                    key={config.key}
-                    config={config}
-                    customSound={customSound}
-                    useCustomSoundsActive={prefs.useCustomSounds}
-                    onSoundUpdated={() => {
-                      queryClient.invalidateQueries({ queryKey: ["notification-sounds"] });
-                      setSuccessMsg("Som salvo com sucesso!");
-                      setTimeout(() => setSuccessMsg(null), 4000);
-                    }}
-                    onSoundRemoved={() => {
-                      queryClient.invalidateQueries({ queryKey: ["notification-sounds"] });
-                      setSuccessMsg("Som personalizado removido. O som padrão será utilizado.");
-                      setTimeout(() => setSuccessMsg(null), 4000);
-                    }}
-                  />
-                );
-              })}
-            </div>
+      {/* Banner de Erro com Ação de Retry (caso falte conexão) */}
+      {hasAnyApiError && (
+        <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span>Não foi possível carregar as configurações do servidor no momento. Mostrando modo padrão.</span>
           </div>
-
-          {/* Seção 2: Preferências Globais de Sensorial & Áudio */}
-          <div className="bg-white dark:bg-[#081A33] border border-slate-200 dark:border-[#142C52] rounded-2xl p-4 sm:p-6 shadow-sm space-y-4">
-            <div className="flex items-center gap-2.5 border-b border-slate-100 dark:border-[#142C52] pb-3">
-              <div className="p-2 rounded-lg bg-[#00D4FF]/10 text-[#00D4FF]">
-                <Volume2 className="w-4 h-4" />
-              </div>
-              <div>
-                <h2 className="text-sm font-bold text-gray-900 dark:text-white">
-                  Sensorial & Dispositivo
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Preferências globais de áudio e feedback háptico (vibração)
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-              <div
-                onClick={() => handleToggle("soundEnabled")}
-                className={`p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
-                  prefs.soundEnabled
-                    ? "bg-[#0066FF]/5 border-[#0066FF] dark:bg-[#0066FF]/10"
-                    : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-[#142C52] opacity-75"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  {prefs.soundEnabled ? (
-                    <Volume2 className="w-5 h-5 text-[#0066FF]" />
-                  ) : (
-                    <VolumeX className="w-5 h-5 text-slate-400" />
-                  )}
-                  <div>
-                    <div className="text-sm font-bold text-gray-900 dark:text-white">Sons de Alerta</div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                      {prefs.soundEnabled ? "Ativado" : "Desativado"}
-                    </div>
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={prefs.soundEnabled}
-                  onChange={() => {}}
-                  className="w-5 h-5 rounded text-[#0066FF] focus:ring-[#0066FF] border-slate-300 dark:border-[#142C52] cursor-pointer pointer-events-none"
-                />
-              </div>
-
-              <div
-                onClick={() => handleToggle("vibrationEnabled")}
-                className={`p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
-                  prefs.vibrationEnabled
-                    ? "bg-[#0066FF]/5 border-[#0066FF] dark:bg-[#0066FF]/10"
-                    : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-[#142C52] opacity-75"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Smartphone className={`w-5 h-5 ${prefs.vibrationEnabled ? "text-[#0066FF]" : "text-slate-400"}`} />
-                  <div>
-                    <div className="text-sm font-bold text-gray-900 dark:text-white">Vibração no Celular</div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                      {prefs.vibrationEnabled ? "Ativada" : "Desativada"}
-                    </div>
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={prefs.vibrationEnabled}
-                  onChange={() => {}}
-                  className="w-5 h-5 rounded text-[#0066FF] focus:ring-[#0066FF] border-slate-300 dark:border-[#142C52] cursor-pointer pointer-events-none"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Seção 3: Alertas Operacionais */}
-          <div className="bg-white dark:bg-[#081A33] border border-slate-200 dark:border-[#142C52] rounded-2xl p-4 sm:p-6 shadow-sm space-y-4">
-            <div className="flex items-center gap-2.5 border-b border-slate-100 dark:border-[#142C52] pb-3">
-              <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500">
-                <ShieldAlert className="w-4 h-4" />
-              </div>
-              <div>
-                <h2 className="text-sm font-bold text-gray-900 dark:text-white">
-                  Alertas do Sistema & Integrações
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Monitoramento técnico de APIs, webhooks e tracking
-                </p>
-              </div>
-            </div>
-
-            <div className="divide-y divide-slate-100 dark:divide-[#142C52]/60">
-              <div className="py-3 flex items-center justify-between gap-4">
-                <div>
-                  <label htmlFor="systemAlerts" className="text-sm font-semibold text-gray-900 dark:text-white cursor-pointer">
-                    Alertas críticos do sistema
-                  </label>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Avisos de expiração de token Meta Ads, limite de requisições ou anomalias de tracking
-                  </p>
-                </div>
-                <input
-                  id="systemAlerts"
-                  type="checkbox"
-                  checked={prefs.systemAlerts}
-                  onChange={() => handleToggle("systemAlerts")}
-                  className="w-5 h-5 rounded text-[#0066FF] focus:ring-[#0066FF] border-slate-300 dark:border-[#142C52] cursor-pointer"
-                />
-              </div>
-
-              <div className="py-3 flex items-center justify-between gap-4">
-                <div>
-                  <label htmlFor="integrationErrors" className="text-sm font-semibold text-gray-900 dark:text-white cursor-pointer">
-                    Falhas de integração de webhooks
-                  </label>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Notificar quando um webhook de checkout retornar payload inválido ou erro de assinatura
-                  </p>
-                </div>
-                <input
-                  id="integrationErrors"
-                  type="checkbox"
-                  checked={prefs.integrationErrors}
-                  onChange={() => handleToggle("integrationErrors")}
-                  className="w-5 h-5 rounded text-[#0066FF] focus:ring-[#0066FF] border-slate-300 dark:border-[#142C52] cursor-pointer"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Seção 4: Teste Real de Notificação Push */}
-          <PushTestSection />
+          <button
+            type="button"
+            onClick={() => {
+              refetchPrefs();
+              refetchSounds();
+            }}
+            className="px-3 py-1 bg-amber-600 text-white rounded-lg text-xs font-semibold hover:bg-amber-700 transition shrink-0"
+          >
+            Tentar novamente
+          </button>
         </div>
       )}
+
+      {/* Conteúdo Principal — Renderizado Imediatamente sem Blocos Vazios */}
+      <div className="space-y-5">
+        {/* Seção 1: Meus Sons de Notificação */}
+        <div className="bg-white dark:bg-[#081A33] border border-slate-200 dark:border-[#142C52] rounded-2xl p-4 sm:p-6 shadow-sm space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-[#142C52] pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-[#0066FF]/10 text-[#0066FF] shrink-0">
+                <Music className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-gray-900 dark:text-white">
+                  Meus sons de notificação
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Escolha um som diferente para cada tipo de notificação. Você pode enviar um áudio diretamente do seu celular.
+                </p>
+              </div>
+            </div>
+
+            {/* Master Custom Sounds Switch */}
+            <div
+              onClick={() => handleToggle("useCustomSounds")}
+              className={`flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl border cursor-pointer transition-all shrink-0 ${
+                prefs.useCustomSounds
+                  ? "bg-[#0066FF]/10 border-[#0066FF] text-[#0066FF]"
+                  : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-[#142C52] text-slate-600 dark:text-slate-400"
+              }`}
+            >
+              <div className="text-xs font-bold">
+                Usar meus sons personalizados
+              </div>
+              <input
+                type="checkbox"
+                checked={prefs.useCustomSounds}
+                onChange={() => {}}
+                className="w-4 h-4 rounded text-[#0066FF] focus:ring-[#0066FF] border-slate-300 dark:border-[#142C52] cursor-pointer pointer-events-none"
+              />
+            </div>
+          </div>
+
+          {!prefs.useCustomSounds && (
+            <div className="p-3 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/80 dark:border-blue-800/50 text-xs text-blue-900 dark:text-blue-300 flex items-start gap-2.5">
+              <Info className="w-4 h-4 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+              <div>
+                <span className="font-semibold">Modo padrão UTM-Track ativo:</span> O aplicativo está reproduzindo os sons característicos originais. Ative a chave acima para que seus áudios personalizados sejam utilizados.
+              </div>
+            </div>
+          )}
+
+          {/* Grid dos 5 Tipos de Notificação */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 sm:gap-4">
+            {NOTIFICATION_TYPES_CONFIG.map((config) => {
+              const customSound = soundsMap.get(config.key);
+              return (
+                <CustomSoundCard
+                  key={config.key}
+                  config={config}
+                  customSound={customSound}
+                  useCustomSoundsActive={prefs.useCustomSounds}
+                  onSoundUpdated={() => {
+                    queryClient.invalidateQueries({ queryKey: ["notification-sounds"] });
+                    setSuccessMsg(`Som de ${config.label} atualizado com sucesso!`);
+                    setTimeout(() => setSuccessMsg(null), 4000);
+                  }}
+                  onSoundRemoved={() => {
+                    queryClient.invalidateQueries({ queryKey: ["notification-sounds"] });
+                    setSuccessMsg(`Som de ${config.label} removido. O som padrão será utilizado.`);
+                    setTimeout(() => setSuccessMsg(null), 4000);
+                  }}
+                />
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Seção 2: Preferências Globais de Sensorial & Áudio */}
+        <div className="bg-white dark:bg-[#081A33] border border-slate-200 dark:border-[#142C52] rounded-2xl p-4 sm:p-6 shadow-sm space-y-4">
+          <div className="flex items-center gap-2.5 border-b border-slate-100 dark:border-[#142C52] pb-3">
+            <div className="p-2 rounded-lg bg-[#00D4FF]/10 text-[#00D4FF]">
+              <Volume2 className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-gray-900 dark:text-white">
+                Sensorial & Dispositivo
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Preferências globais de áudio e feedback háptico (vibração)
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 pt-1">
+            <div
+              onClick={() => handleToggle("soundEnabled")}
+              className={`p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
+                prefs.soundEnabled
+                  ? "bg-[#0066FF]/5 border-[#0066FF] dark:bg-[#0066FF]/10"
+                  : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-[#142C52] opacity-75"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                {prefs.soundEnabled ? (
+                  <Volume2 className="w-5 h-5 text-[#0066FF]" />
+                ) : (
+                  <VolumeX className="w-5 h-5 text-slate-400" />
+                )}
+                <div>
+                  <div className="text-sm font-bold text-gray-900 dark:text-white">Sons de Alerta</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    {prefs.soundEnabled ? "Ativado" : "Desativado"}
+                  </div>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={prefs.soundEnabled}
+                onChange={() => {}}
+                className="w-5 h-5 rounded text-[#0066FF] focus:ring-[#0066FF] border-slate-300 dark:border-[#142C52] cursor-pointer pointer-events-none"
+              />
+            </div>
+
+            <div
+              onClick={() => handleToggle("vibrationEnabled")}
+              className={`p-4 rounded-xl border cursor-pointer transition-all flex items-center justify-between ${
+                prefs.vibrationEnabled
+                  ? "bg-[#0066FF]/5 border-[#0066FF] dark:bg-[#0066FF]/10"
+                  : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-[#142C52] opacity-75"
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Smartphone className={`w-5 h-5 ${prefs.vibrationEnabled ? "text-[#0066FF]" : "text-slate-400"}`} />
+                <div>
+                  <div className="text-sm font-bold text-gray-900 dark:text-white">Vibração no Celular</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    {prefs.vibrationEnabled ? "Ativada" : "Desativada"}
+                  </div>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={prefs.vibrationEnabled}
+                onChange={() => {}}
+                className="w-5 h-5 rounded text-[#0066FF] focus:ring-[#0066FF] border-slate-300 dark:border-[#142C52] cursor-pointer pointer-events-none"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Seção 3: Alertas Operacionais */}
+        <div className="bg-white dark:bg-[#081A33] border border-slate-200 dark:border-[#142C52] rounded-2xl p-4 sm:p-6 shadow-sm space-y-4">
+          <div className="flex items-center gap-2.5 border-b border-slate-100 dark:border-[#142C52] pb-3">
+            <div className="p-2 rounded-lg bg-amber-500/10 text-amber-500">
+              <ShieldAlert className="w-4 h-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-gray-900 dark:text-white">
+                Alertas do Sistema & Integrações
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Monitoramento técnico de APIs, webhooks e tracking
+              </p>
+            </div>
+          </div>
+
+          <div className="divide-y divide-slate-100 dark:divide-[#142C52]/60">
+            <div className="py-3 flex items-center justify-between gap-4">
+              <div>
+                <label htmlFor="systemAlerts" className="text-sm font-semibold text-gray-900 dark:text-white cursor-pointer">
+                  Alertas críticos do sistema
+                </label>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Avisos de expiração de token Meta Ads, limite de requisições ou anomalias de tracking
+                </p>
+              </div>
+              <input
+                id="systemAlerts"
+                type="checkbox"
+                checked={prefs.systemAlerts}
+                onChange={() => handleToggle("systemAlerts")}
+                className="w-5 h-5 rounded text-[#0066FF] focus:ring-[#0066FF] border-slate-300 dark:border-[#142C52] cursor-pointer"
+              />
+            </div>
+
+            <div className="py-3 flex items-center justify-between gap-4">
+              <div>
+                <label htmlFor="integrationErrors" className="text-sm font-semibold text-gray-900 dark:text-white cursor-pointer">
+                  Falhas de integração de webhooks
+                </label>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Notificar quando um webhook de checkout retornar payload inválido ou erro de assinatura
+                </p>
+              </div>
+              <input
+                id="integrationErrors"
+                type="checkbox"
+                checked={prefs.integrationErrors}
+                onChange={() => handleToggle("integrationErrors")}
+                className="w-5 h-5 rounded text-[#0066FF] focus:ring-[#0066FF] border-slate-300 dark:border-[#142C52] cursor-pointer"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Seção 4: Teste Real de Notificação Push */}
+        <PushTestSection />
+      </div>
     </div>
   );
 }
 
 /**
- * Componente individual de Card de Som Personalizado
+ * Componente Individual de Card de Som Personalizado
  */
 function CustomSoundCard({
   config,
@@ -510,7 +551,6 @@ function CustomSoundCard({
     }
 
     setIsPlaying(true);
-    const audioUrl = customSound?.fileUrl || config.defaultSoundKey;
     const audio = await playNotificationSound(config.defaultSoundKey, customSound?.fileUrl);
 
     if (audio) {
@@ -529,7 +569,6 @@ function CustomSoundCard({
     setUploadWarning(null);
 
     try {
-      // Obter duração do áudio no cliente quando suportado
       let duration: number | undefined = undefined;
       try {
         const audioEl = new Audio(URL.createObjectURL(file));
@@ -629,19 +668,19 @@ function CustomSoundCard({
     <div
       className={`p-4 rounded-2xl border transition-all flex flex-col justify-between gap-3 ${
         isCustomActive
-          ? "bg-blue-50/20 dark:bg-[#0E2547]/50 border-blue-500/30"
-          : "bg-slate-50/60 dark:bg-slate-900/40 border-slate-200 dark:border-[#142C52]"
+          ? "bg-blue-50/30 dark:bg-[#0E2547]/60 border-[#0066FF]/40 shadow-sm"
+          : "bg-slate-50/70 dark:bg-[#0A1F3D]/40 border-slate-200 dark:border-[#142C52]"
       } ${config.borderHover}`}
     >
       {/* Header do Card */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xl">{config.icon}</span>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2.5">
+          <span className="text-2xl">{config.icon}</span>
           <div>
-            <div className="text-xs font-bold uppercase tracking-wider text-gray-900 dark:text-white flex items-center gap-2">
+            <div className="text-xs font-bold uppercase tracking-wider text-gray-900 dark:text-white flex items-center gap-2 flex-wrap">
               {config.label}
               {isCustomActive ? (
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300">
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
                   ✓ Som personalizado ativo
                 </span>
               ) : (
@@ -657,14 +696,17 @@ function CustomSoundCard({
         </div>
       </div>
 
-      {/* Detalhes do Som Atual */}
-      <div className="p-3 rounded-xl bg-white dark:bg-[#081A33] border border-slate-200 dark:border-[#142C52] space-y-1.5">
-        <div className="flex items-center justify-between">
-          <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate max-w-[240px]">
-            {customSound ? customSound.originalFileName : config.defaultSoundName}
+      {/* Caixa de Status e Informações do Arquivo */}
+      <div className="p-3 rounded-xl bg-white dark:bg-[#081A33] border border-slate-200/80 dark:border-[#142C52] space-y-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <FileAudio className={`w-4 h-4 shrink-0 ${customSound ? "text-[#0066FF]" : "text-slate-400"}`} />
+            <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate">
+              {customSound ? customSound.originalFileName : "Nenhum som personalizado (usando padrão)"}
+            </span>
           </div>
           {customSound && (
-            <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+            <div className="text-[10px] text-slate-400 dark:text-slate-400 font-mono shrink-0 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
               {formatFileSize(customSound.fileSize)}
               {customSound.duration ? ` • ${customSound.duration.toFixed(1)}s` : ""}
             </div>
@@ -672,13 +714,13 @@ function CustomSoundCard({
         </div>
 
         {uploadWarning && (
-          <div className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 p-2 rounded-lg border border-amber-200 dark:border-amber-800">
+          <div className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 p-2 rounded-lg border border-amber-200 dark:border-amber-800">
             {uploadWarning}
           </div>
         )}
 
         {testResult && (
-          <div className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
+          <div className="text-[11px] font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
             {testResult}
           </div>
         )}
@@ -693,16 +735,16 @@ function CustomSoundCard({
         className="hidden"
       />
 
-      {/* Botões de Ação */}
+      {/* Botões de Ação — Mobile First */}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-[#142C52]/60">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {/* Tocar Prévia */}
           <button
             type="button"
             onClick={handlePlayPreview}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
               isPlaying
-                ? "bg-amber-500 text-white"
+                ? "bg-amber-500 text-white shadow-sm"
                 : "bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200"
             }`}
           >
@@ -723,7 +765,7 @@ function CustomSoundCard({
             onClick={handleSendTestPush}
             disabled={isTestingPush}
             className="px-2.5 py-1.5 rounded-lg text-xs font-medium border border-slate-200 dark:border-[#142C52] hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center gap-1.5 transition disabled:opacity-50"
-            title="Dispara notificação de teste real com este som para o celular"
+            title="Dispara notificação de teste com este som"
           >
             <Bell className="w-3.5 h-3.5 text-blue-500" />
             <span className="hidden sm:inline">Testar notificação</span>
@@ -731,13 +773,13 @@ function CustomSoundCard({
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {/* Adicionar / Alterar Som */}
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={isUploading}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#0066FF] hover:bg-[#0052cc] text-white flex items-center gap-1.5 transition disabled:opacity-50"
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#0066FF] hover:bg-[#0052cc] text-white flex items-center gap-1.5 transition disabled:opacity-50 shadow-sm"
           >
             {isUploading ? (
               <>
@@ -853,7 +895,7 @@ function PushTestSection() {
           Selecione o tipo de evento para disparar o Push Notification correspondente:
         </p>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-2.5">
           {testOptions.map((opt) => {
             const isLoadingThis = isSending && activeType === opt.type;
             return (
