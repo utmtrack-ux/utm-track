@@ -39,7 +39,19 @@ Este guia detalha o passo a passo completo para colocar o **UTM-Track** em produ
 ### Passo 2: Importar o Projeto na Vercel
 1. Acesse o dashboard da Vercel (https://vercel.com) e clique em **Add New Project**.
 2. Conecte o repositório Git do **UTM-Track**.
-3. O Framework Preset detectará automaticamente **Next.js**.
+3. **Framework Preset:** o repositório contém um `vercel.json` que fixa `"framework": "nextjs"`,
+   `buildCommand` e `installCommand`. Esse arquivo **sobrescreve** qualquer valor do painel, então
+   o projeto sempre será construído como **Next.js (App Router)**, mesmo que a detecção automática falhe.
+4. **Root Directory:** deve permanecer **vazio** (raiz do repositório). Não aponte para nenhuma subpasta.
+5. **Não** ative o *Override* de *Output Directory* / *Build Command* no painel — o `vercel.json` já cuida disso.
+
+> ⚠️ **Sintoma de configuração errada:** se o domínio de produção responder
+> `404: NOT_FOUND` (página de erro da própria Vercel) em **todas** as rotas — inclusive `/`,
+> `/login` e `/api/health` — significa que a Vercel está servindo apenas a pasta estática `public/`
+> porque o Framework Preset ficou como **"Other"**. Solução: garantir que o `vercel.json` deste
+> repositório esteja no commit implantado e, no painel, **Settings → Build & Deployment →
+> Framework Preset = Next.js** (com os *Overrides* de Build Command e Output Directory **desligados**).
+> Depois clique em **Redeploy**.
 
 ### Passo 3: Configurar as Variáveis de Ambiente na Vercel
 No painel **Settings → Environment Variables**, adicione as seguintes variáveis:
@@ -67,7 +79,7 @@ No painel **Settings → Environment Variables**, adicione as seguintes variáve
 | `FCM_SERVER_KEY` | Android Push | Firebase Console → Cloud Messaging → Server Key |
 
 ### Passo 4: Sincronizar o Esquema com o PostgreSQL
-Durante o build, o comando `"build": "node scripts/switch-database.js detect && prisma generate && next build"` detectará automaticamente a URL PostgreSQL e gerará o cliente correspondente.
+Durante o build, o comando `vercel-build` (`node scripts/switch-database.js detect && prisma generate && next build`) detectará automaticamente a URL PostgreSQL e gerará o cliente correspondente. O `vercel.json` já força `buildCommand` para `npm run vercel-build`.
 
 Para aplicar as tabelas pela primeira vez no banco PostgreSQL:
 ```bash
