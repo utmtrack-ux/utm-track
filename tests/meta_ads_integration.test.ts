@@ -128,3 +128,44 @@ describe('Meta Ads — Consistência de Métricas Importadas da Meta', () => {
   })
 })
 
+describe('Meta Ads — Resolução Canônica de Redirect URI de Produção', () => {
+
+  it('Gera redirect_uri apontando exatamente para https://utm-track-navy.vercel.app/api/meta/callback em produção', () => {
+    const env = process.env as Record<string, string | undefined>
+    const originalEnv = env.NODE_ENV
+    const originalUrl = env.NEXT_PUBLIC_APP_URL
+    const originalVercel = env.VERCEL_PROJECT_PRODUCTION_URL
+
+    try {
+      delete env.NEXT_PUBLIC_APP_URL
+      delete env.VERCEL_PROJECT_PRODUCTION_URL
+      env.NODE_ENV = 'production'
+
+      const { getMetaRedirectUri, getAppBaseUrl, PRODUCTION_APP_URL } = require('../src/lib/meta/oauth')
+
+      assert.equal(PRODUCTION_APP_URL, 'https://utm-track-navy.vercel.app')
+      assert.equal(getAppBaseUrl(), 'https://utm-track-navy.vercel.app')
+      assert.equal(getMetaRedirectUri(), 'https://utm-track-navy.vercel.app/api/meta/callback')
+    } finally {
+      env.NODE_ENV = originalEnv
+      if (originalUrl) env.NEXT_PUBLIC_APP_URL = originalUrl
+      if (originalVercel) env.VERCEL_PROJECT_PRODUCTION_URL = originalVercel
+    }
+  })
+
+
+  it('Respeita NEXT_PUBLIC_APP_URL explicitamente configurada e remove trailing slash', () => {
+    const { getMetaRedirectUri } = require('../src/lib/meta/oauth')
+    const originalUrl = process.env.NEXT_PUBLIC_APP_URL
+
+    try {
+      process.env.NEXT_PUBLIC_APP_URL = 'https://utm-track-navy.vercel.app/'
+      assert.equal(getMetaRedirectUri(), 'https://utm-track-navy.vercel.app/api/meta/callback')
+    } finally {
+      if (originalUrl) process.env.NEXT_PUBLIC_APP_URL = originalUrl
+      else delete process.env.NEXT_PUBLIC_APP_URL
+    }
+  })
+})
+
+

@@ -4,6 +4,53 @@ import axios from 'axios';
 const META_GRAPH_VERSION = 'v21.0';
 const META_GRAPH_BASE = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
 
+export const PRODUCTION_APP_URL = 'https://utm-track-navy.vercel.app';
+
+/**
+ * Resolve the canonical application base URL for OAuth callbacks and external integrations.
+ */
+export function getAppBaseUrl(request?: Request): string {
+  // 1. Explicit environment variable
+  if (process.env.NEXT_PUBLIC_APP_URL && process.env.NEXT_PUBLIC_APP_URL.trim() !== '') {
+    return process.env.NEXT_PUBLIC_APP_URL.trim().replace(/\/$/, '');
+  }
+  if (process.env.APP_URL && process.env.APP_URL.trim() !== '') {
+    return process.env.APP_URL.trim().replace(/\/$/, '');
+  }
+  if (process.env.NEXTAUTH_URL && process.env.NEXTAUTH_URL.trim() !== '') {
+    return process.env.NEXTAUTH_URL.trim().replace(/\/$/, '');
+  }
+
+  // 2. Vercel System Production Domain
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL && process.env.VERCEL_PROJECT_PRODUCTION_URL.trim() !== '') {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.trim().replace(/\/$/, '')}`;
+  }
+
+  // 3. Fallback for production / Vercel runtime
+  if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+    return PRODUCTION_APP_URL;
+  }
+
+  // 4. Request headers during local development
+  if (request) {
+    const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
+    const proto = request.headers.get('x-forwarded-proto') || 'http';
+    if (host && !host.includes('vercel.app')) {
+      return `${proto}://${host}`.replace(/\/$/, '');
+    }
+  }
+
+  return 'http://localhost:3000';
+}
+
+/**
+ * Resolve the exact OAuth callback URI for Meta Facebook Login.
+ */
+export function getMetaRedirectUri(request?: Request): string {
+  const baseUrl = getAppBaseUrl(request);
+  return `${baseUrl}/api/meta/callback`;
+}
+
 function getSigningSecret(): string {
   return (
     process.env.AUTH_SECRET ||
@@ -12,6 +59,7 @@ function getSigningSecret(): string {
     'utm_track_oauth_state_signing_key_2025'
   );
 }
+
 
 export interface OAuthStatePayload {
   userId: string;

@@ -8,7 +8,9 @@ import {
   verifyOAuthState,
   exchangeCodeForToken,
   exchangeForLongLivedToken,
+  getMetaRedirectUri,
 } from '@/lib/meta/oauth'
+
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -59,17 +61,8 @@ export async function GET(request: Request) {
     )
   }
 
-  // Derive base URL accurately
-  const host = request.headers.get('x-forwarded-host') || request.headers.get('host')
-  const proto = request.headers.get('x-forwarded-proto') || 'https'
-  const originFromReq = host ? `${proto}://${host}` : new URL(request.url).origin
+  const redirectUri = getMetaRedirectUri(request)
 
-  const baseUrl =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null) ||
-    originFromReq
-
-  const redirectUri = `${baseUrl.replace(/\/$/, '')}/api/meta/callback`
 
   try {
     // 4. Troca de code por short-lived token
