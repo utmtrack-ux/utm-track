@@ -158,7 +158,6 @@ function MetaAdsContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           selectedAccountIds: accountIds,
-          syncImmediately: true,
         }),
       });
       const data = await res.json();
@@ -166,11 +165,17 @@ function MetaAdsContent() {
       return data;
     },
     onSuccess: () => {
+      // Close modal immediately — selection was saved
       setIsSelectModalOpen(false);
       queryClient.invalidateQueries({ queryKey: ["meta-accounts"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       router.replace("/meta-ads");
+      // Trigger sync separately — does not block the modal
       syncMutation.mutate();
+    },
+    onError: (err: Error) => {
+      setSyncMessage(`Erro ao salvar contas: ${err.message}`);
+      setTimeout(() => setSyncMessage(null), 7000);
     },
   });
 
@@ -544,7 +549,7 @@ function MetaAdsContent() {
                 disabled={selectedIds.length === 0 || selectAccountsMutation.isPending}
                 className="flex-1 py-2.5 text-sm bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow disabled:opacity-50 transition-colors"
               >
-                {selectAccountsMutation.isPending ? "Conectando..." : "Conectar e Sincronizar"}
+                {selectAccountsMutation.isPending ? "Salvando..." : "Conectar Contas"}
               </button>
             </div>
           </div>

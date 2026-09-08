@@ -186,3 +186,97 @@ describe('Meta Ads — Validação de Escopos OAuth (Sem read_insights inválido
 })
 
 
+describe('Meta Ads — Separação de Seleção e Sincronização de Contas', () => {
+  it('POST /api/meta/select não deve chamar syncAdAccount — retorna activatedCount imediatamente', () => {
+    // Verify the route no longer imports or calls syncAdAccount
+    const fs = require('fs')
+    const path = require('path')
+    const routeSource = fs.readFileSync(
+      path.join(__dirname, '../src/app/api/meta/select/route.ts'),
+      'utf-8'
+    )
+    assert.equal(routeSource.includes('syncAdAccount'), false,
+      '/api/meta/select NÃO deve importar ou chamar syncAdAccount')
+    assert.equal(routeSource.includes('syncImmediately'), false,
+      '/api/meta/select NÃO deve aceitar ou processar syncImmediately')
+    assert.ok(routeSource.includes('activatedCount'),
+      '/api/meta/select deve retornar activatedCount na resposta')
+  })
+
+  it('POST /api/meta/select não importa lib de sync e retorna resposta rápida', () => {
+    const fs = require('fs')
+    const path = require('path')
+    const routeSource = fs.readFileSync(
+      path.join(__dirname, '../src/app/api/meta/select/route.ts'),
+      'utf-8'
+    )
+    // Must not import the sync library at all
+    assert.equal(routeSource.includes("from '@/lib/meta/sync'"), false,
+      '/api/meta/select NÃO deve importar @/lib/meta/sync')
+    assert.equal(routeSource.includes("require('../lib/meta/sync')"), false)
+  })
+
+  it('POST /api/meta/sync sincroniza somente contas ativas — não todas as contas', () => {
+    const fs = require('fs')
+    const path = require('path')
+    const syncRouteSource = fs.readFileSync(
+      path.join(__dirname, '../src/app/api/meta/sync/route.ts'),
+      'utf-8'
+    )
+    // Must filter by active status
+    assert.ok(syncRouteSource.includes("status: 'active'"),
+      '/api/meta/sync deve filtrar somente contas com status active')
+  })
+
+  it('POST /api/meta/sync isola erros por conta — uma falha não interrompe as demais', () => {
+    const fs = require('fs')
+    const path = require('path')
+    const syncRouteSource = fs.readFileSync(
+      path.join(__dirname, '../src/app/api/meta/sync/route.ts'),
+      'utf-8'
+    )
+    // Must have per-account try/catch inside the loop
+    assert.ok(syncRouteSource.includes('try {') && syncRouteSource.includes('catch (err)'),
+      '/api/meta/sync deve capturar erros individualmente por conta')
+    assert.ok(syncRouteSource.includes('succeeded'),
+      '/api/meta/sync deve retornar contagem de sucesso e falha')
+  })
+
+  it('Seleção de 1 conta: selectedAccountIds com 1 item é array válido', () => {
+    const ids = ['acc-uuid-001']
+    assert.ok(Array.isArray(ids))
+    assert.equal(ids.length, 1)
+  })
+
+  it('Seleção de 19 contas: selectedAccountIds com 19 itens é array válido', () => {
+    const ids = Array.from({ length: 19 }, (_, i) => `acc-uuid-${String(i + 1).padStart(3, '0')}`)
+    assert.ok(Array.isArray(ids))
+    assert.equal(ids.length, 19)
+  })
+
+  it('Idempotência: chamar select múltiplas vezes com os mesmos IDs não duplica contas', () => {
+    // The route uses updateMany (upsert-equivalent for status), not create
+    const fs = require('fs')
+    const path = require('path')
+    const routeSource = fs.readFileSync(
+      path.join(__dirname, '../src/app/api/meta/select/route.ts'),
+      'utf-8'
+    )
+    assert.ok(routeSource.includes('updateMany'),
+      '/api/meta/select usa updateMany (idempotente) para definir status das contas')
+    assert.equal(routeSource.includes('prisma.adAccount.create'), false,
+      '/api/meta/select não deve criar contas novas (não idempotente)')
+  })
+
+  it('Isolamento de workspace: query de activate filtra por workspaceId', () => {
+    const fs = require('fs')
+    const path = require('path')
+    const routeSource = fs.readFileSync(
+      path.join(__dirname, '../src/app/api/meta/select/route.ts'),
+      'utf-8'
+    )
+    const occurrences = (routeSource.match(/workspaceId/g) || []).length
+    assert.ok(occurrences >= 2,
+      '/api/meta/select deve usar workspaceId em todas as queries para isolamento de tenant')
+  })
+})

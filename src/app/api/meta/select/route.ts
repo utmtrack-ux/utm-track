@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getUserWorkspaceId } from '@/lib/workspace'
-import { syncAdAccount } from '@/lib/meta/sync'
 
 export async function POST(req: Request) {
   try {
@@ -17,7 +16,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json()
-    const { selectedAccountIds, syncImmediately } = body
+    const { selectedAccountIds } = body
 
     if (!Array.isArray(selectedAccountIds)) {
       return NextResponse.json(
@@ -26,16 +25,18 @@ export async function POST(req: Request) {
       )
     }
 
-    // 1. Atualizar status das contas selecionadas para active
-    await prisma.adAccount.updateMany({
-      where: {
-        workspaceId,
-        id: { in: selectedAccountIds },
-      },
-      data: { status: 'active' },
-    })
+    // 1. Activate selected accounts
+    if (selectedAccountIds.length > 0) {
+      await prisma.adAccount.updateMany({
+        where: {
+          workspaceId,
+          id: { in: selectedAccountIds },
+        },
+        data: { status: 'active' },
+      })
+    }
 
-    // 2. Opcional: atualizar contas desmarcadas para inactive
+    // 2. Deactivate all other accounts in this workspace
     await prisma.adAccount.updateMany({
       where: {
         workspaceId,
@@ -44,24 +45,12 @@ export async function POST(req: Request) {
       data: { status: 'inactive' },
     })
 
-    const syncResults = []
-
-    // 3. Se solicitado, executa a sincronização inicial das contas selecionadas
-    if (syncImmediately && selectedAccountIds.length > 0) {
-      for (const accId of selectedAccountIds) {
-        const res = await syncAdAccount(workspaceId, accId)
-        syncResults.push({ accountId: accId, ...res })
-      }
-    }
-
     return NextResponse.json({
       success: true,
       activatedCount: selectedAccountIds.length,
-      syncResults,
     })
   } catch (error: unknown) {
-    console.error('Error selecting ad accounts:', error)
+    console.error('[Meta Select] Error selecting ad accounts:', error)
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 }
-

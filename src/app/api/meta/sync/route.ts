@@ -19,29 +19,44 @@ export async function POST(req: Request) {
 
     const accountId = body.accountId
 
+    // Sync a single account if specified
     if (accountId) {
       const result = await syncAdAccount(workspaceId, accountId)
       return NextResponse.json(result)
     }
 
-    // Se nenhum accountId especificado, sincroniza todas as contas do workspace
+    // Sync only active accounts — never all 19 if most are inactive
     const accounts = await prisma.adAccount.findMany({
-      where: { workspaceId }
+      where: { workspaceId, status: 'active' },
     })
 
     if (accounts.length === 0) {
-      return NextResponse.json({ success: true, message: 'Nenhuma conta para sincronizar', synced: 0 })
+      return NextResponse.json({ success: true, message: 'Nenhuma conta ativa para sincronizar', synced: 0 })
     }
 
     const results = []
     for (const acc of accounts) {
-      const res = await syncAdAccount(workspaceId, acc.id)
-      results.push({ accountId: acc.id, ...res })
+      // Each account syncs independently — an error in one does not stop the others
+      try {
+        const res = await syncAdAccount(workspaceId, acc.id)
+        results.push({ accountId: acc.id, name: acc.name, ...res })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Erro desconhecido'
+        console.error(`[Meta Sync] Erro na conta ${acc.id}:`, err)
+        results.push({ accountId: acc.id, name: acc.name, success: false, errors: [msg] })
+      }
     }
 
-    return NextResponse.json({ success: true, results })
+    const successCount = results.filter((r) => r.success).length
+    return NextResponse.json({
+      success: true,
+      synced: accounts.length,
+      succeeded: successCount,
+      failed: accounts.length - successCount,
+      results,
+    })
   } catch (error) {
-    console.error('Meta sync error:', error)
+    console.error('[Meta Sync] Erro geral:', error)
     return NextResponse.json({ error: 'Sync failed' }, { status: 500 })
   }
 }
