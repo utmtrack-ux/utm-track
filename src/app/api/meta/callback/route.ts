@@ -4,24 +4,48 @@ import { prisma } from '@/lib/db'
 import { getUserWorkspaceId } from '@/lib/workspace'
 import { encrypt } from '@/lib/encryption'
 import { MetaApiClient } from '@/lib/meta/client'
-import axios from 'axios'
+import {
+  verifyOAuthState,
+  exchangeCodeForToken,
+  exchangeForLongLivedToken,
+} from '@/lib/meta/oauth'
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const code = searchParams.get('code')
+  const state = searchParams.get('state')
   const error = searchParams.get('error')
   const errorDescription = searchParams.get('error_description')
+  const errorReason = searchParams.get('error_reason')
 
+  // 1. Tratar cancelamento ou negação de permissão pelo usuário na Meta
   if (error || !code) {
-    return NextResponse.redirect(new URL(`/meta-ads?error=${encodeURIComponent(errorDescription || error || 'no_code')}`, request.url))
+    const reason = errorDescription || errorReason || error || 'Autorização cancelada ou código ausente'
+    return NextResponse.redirect(
+      new URL(`/meta-ads?error=${encodeURIComponent(reason)}`, request.url)
+    )
   }
 
+  // 2. Validação criptográfica do state (CSRF / Workspace binding)
+  const stateVerification = verifyOAuthState(state)
+  if (!stateVerification.valid) {
+    return NextResponse.redirect(
+      new URL(
+        `/meta-ads?error=${encodeURIComponent(stateVerification.error || 'State de segurança inválido')}`,
+        request.url
+      )
+    )
+  }
+
+  // 3. Obter sessão autenticada ou usar identificador do state validado
   const session = await auth()
-  if (!session?.user?.id) {
+  const userId = session?.user?.id || stateVerification.userId
+  if (!userId) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  const workspaceId = await getUserWorkspaceId(session.user.id)
+  const workspaceId =
+    stateVerification.workspaceId || (await getUserWorkspaceId(userId))
   if (!workspaceId) {
     return NextResponse.redirect(new URL('/meta-ads?error=no_workspace', request.url))
   }
@@ -30,34 +54,51 @@ export async function GET(request: Request) {
   const appSecret = process.env.META_APP_SECRET
 
   if (!appId || !appSecret) {
-    return NextResponse.redirect(new URL('/meta-ads?error=meta_not_configured', request.url))
+    return NextResponse.redirect(
+      new URL('/meta-ads?error=meta_not_configured', request.url)
+    )
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : new URL(request.url).origin)
+  // Derive base URL accurately
+  const host = request.headers.get('x-forwarded-host') || request.headers.get('host')
+  const proto = request.headers.get('x-forwarded-proto') || 'https'
+  const originFromReq = host ? `${proto}://${host}` : new URL(request.url).origin
+
+  const baseUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null) ||
+    originFromReq
+
   const redirectUri = `${baseUrl.replace(/\/$/, '')}/api/meta/callback`
 
   try {
-    // 1. Troca de code por Access Token com a Meta Graph API v21.0
-    const tokenRes = await axios.get('https://graph.facebook.com/v21.0/oauth/access_token', {
-      params: {
-        client_id: appId,
-        client_secret: appSecret,
-        redirect_uri: redirectUri,
-        code,
-      },
-    })
+    // 4. Troca de code por short-lived token
+    const { accessToken: shortToken } = await exchangeCodeForToken(
+      code,
+      redirectUri,
+      appId,
+      appSecret
+    )
 
-    const accessToken = tokenRes.data?.access_token
-    if (!accessToken) {
-      return NextResponse.redirect(new URL('/meta-ads?error=token_exchange_failed', request.url))
-    }
+    // 5. Troca por Long-Lived Token (~60 dias de validade)
+    const { accessToken: longLivedToken } = await exchangeForLongLivedToken(
+      shortToken,
+      appId,
+      appSecret
+    )
 
-    // 2. Busca de contas de anúncio vinculadas ao usuário
-    const metaClient = new MetaApiClient(accessToken)
+    // 6. Buscar contas de anúncios associadas ao usuário na Meta
+    const metaClient = new MetaApiClient(longLivedToken)
     const adAccounts = await metaClient.getAdAccounts()
 
-    // 3. Persistência segura das contas com token cifrado em AES-256-GCM
-    const accessTokenEnc = encrypt(accessToken)
+    // 7. Criptografar o token para repouso seguro no banco (AES-256-GCM)
+    const accessTokenEnc = encrypt(longLivedToken)
+    let metaUserInfo = null
+    try {
+      metaUserInfo = await metaClient.getMe()
+    } catch {}
+
+    // 8. Persistir contas encontradas no workspace
     for (const acc of adAccounts) {
       await prisma.adAccount.upsert({
         where: {
@@ -72,6 +113,7 @@ export async function GET(request: Request) {
           timezone: acc.timezone_name || 'America/Sao_Paulo',
           status: 'active',
           accessTokenEnc,
+          metaUserId: metaUserInfo?.id || null,
         },
         create: {
           workspaceId,
@@ -81,14 +123,24 @@ export async function GET(request: Request) {
           timezone: acc.timezone_name || 'America/Sao_Paulo',
           status: 'active',
           accessTokenEnc,
+          metaUserId: metaUserInfo?.id || null,
         },
       })
     }
 
-    return NextResponse.redirect(new URL('/meta-ads?success=connected', request.url))
-  } catch (err: any) {
-    console.error('Meta OAuth callback error:', err?.response?.data || err.message)
-    const errDetail = err?.response?.data?.error?.message || err.message || 'unknown'
-    return NextResponse.redirect(new URL(`/meta-ads?error=${encodeURIComponent(errDetail)}`, request.url))
+    // 9. Redireciona para /meta-ads com modal de seleção e confirmação
+    return NextResponse.redirect(
+      new URL('/meta-ads?status=oauth_success&select_accounts=true', request.url)
+    )
+  } catch (err: unknown) {
+    const errorDetail =
+      err instanceof Error
+        ? err.message
+        : 'Falha durante o processamento do callback Meta'
+    console.error('Meta OAuth callback error:', err)
+    return NextResponse.redirect(
+      new URL(`/meta-ads?error=${encodeURIComponent(errorDetail)}`, request.url)
+    )
   }
 }
+

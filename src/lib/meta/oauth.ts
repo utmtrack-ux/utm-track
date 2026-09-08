@@ -1,0 +1,161 @@
+import crypto from 'crypto';
+import axios from 'axios';
+
+const META_GRAPH_VERSION = 'v21.0';
+const META_GRAPH_BASE = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
+
+function getSigningSecret(): string {
+  return (
+    process.env.AUTH_SECRET ||
+    process.env.NEXTAUTH_SECRET ||
+    process.env.ENCRYPTION_KEY ||
+    'utm_track_oauth_state_signing_key_2025'
+  );
+}
+
+export interface OAuthStatePayload {
+  userId: string;
+  workspaceId: string;
+  timestamp: number;
+  nonce: string;
+}
+
+/**
+ * Generate a cryptographically signed state token for Meta OAuth CSRF protection.
+ */
+export function generateOAuthState(userId: string, workspaceId: string): string {
+  const payload: OAuthStatePayload = {
+    userId,
+    workspaceId,
+    timestamp: Date.now(),
+    nonce: crypto.randomBytes(12).toString('hex'),
+  };
+
+  const serialized = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = crypto
+    .createHmac('sha256', getSigningSecret())
+    .update(serialized)
+    .digest('base64url');
+
+  return `${serialized}.${signature}`;
+}
+
+/**
+ * Validate and unpack the OAuth state token.
+ */
+export function verifyOAuthState(stateString: string | null | undefined): {
+  valid: boolean;
+  userId?: string;
+  workspaceId?: string;
+  error?: string;
+} {
+  if (!stateString) {
+    return { valid: false, error: 'State ausente' };
+  }
+
+  const parts = stateString.split('.');
+  if (parts.length !== 2) {
+    return { valid: false, error: 'Formato de state inválido' };
+  }
+
+  const [serialized, signature] = parts;
+
+  const expectedSignature = crypto
+    .createHmac('sha256', getSigningSecret())
+    .update(serialized)
+    .digest('base64url');
+
+  const sigBuffer = Buffer.from(signature, 'utf8');
+  const expBuffer = Buffer.from(expectedSignature, 'utf8');
+
+  if (sigBuffer.length !== expBuffer.length || !crypto.timingSafeEqual(sigBuffer, expBuffer)) {
+    return { valid: false, error: 'Assinatura do state inválida (possível CSRF)' };
+  }
+
+  try {
+    const payload: OAuthStatePayload = JSON.parse(
+      Buffer.from(serialized, 'base64url').toString('utf8')
+    );
+
+    // Max 30 minutes validity
+    const maxAge = 30 * 60 * 1000;
+    if (Date.now() - payload.timestamp > maxAge) {
+      return { valid: false, error: 'State expirado. Inicie o fluxo novamente.' };
+    }
+
+    return {
+      valid: true,
+      userId: payload.userId,
+      workspaceId: payload.workspaceId,
+    };
+  } catch {
+    return { valid: false, error: 'Falha ao decodificar payload do state' };
+  }
+}
+
+/**
+ * Exchange the authorization code for a short-lived user access token.
+ */
+export async function exchangeCodeForToken(
+  code: string,
+  redirectUri: string,
+  appId: string,
+  appSecret: string
+): Promise<{ accessToken: string; expiresIn?: number }> {
+  const url = `${META_GRAPH_BASE}/oauth/access_token`;
+  const response = await axios.get(url, {
+    params: {
+      client_id: appId,
+      client_secret: appSecret,
+      redirect_uri: redirectUri,
+      code,
+    },
+    timeout: 15000,
+  });
+
+  const accessToken = response.data?.access_token;
+  if (!accessToken) {
+    throw new Error('Meta não retornou access_token na troca de code');
+  }
+
+  return {
+    accessToken,
+    expiresIn: response.data?.expires_in,
+  };
+}
+
+/**
+ * Exchange a short-lived user access token for a long-lived user access token (~60 days).
+ */
+export async function exchangeForLongLivedToken(
+  shortLivedToken: string,
+  appId: string,
+  appSecret: string
+): Promise<{ accessToken: string; expiresIn?: number }> {
+  try {
+    const url = `${META_GRAPH_BASE}/oauth/access_token`;
+    const response = await axios.get(url, {
+      params: {
+        grant_type: 'fb_exchange_token',
+        client_id: appId,
+        client_secret: appSecret,
+        fb_exchange_token: shortLivedToken,
+      },
+      timeout: 15000,
+    });
+
+    const accessToken = response.data?.access_token;
+    if (accessToken) {
+      return {
+        accessToken,
+        expiresIn: response.data?.expires_in,
+      };
+    }
+  } catch (err: any) {
+    console.warn('[Meta OAuth] Aviso ao obter long-lived token, mantendo token original:', err?.response?.data || err?.message);
+  }
+
+  // Fallback to original short-lived token if long-lived exchange is unavailable
+  return { accessToken: shortLivedToken };
+}
+

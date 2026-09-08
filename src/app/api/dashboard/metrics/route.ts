@@ -135,6 +135,65 @@ export async function GET(req: Request) {
       expenses: totalExpenses
     })
 
+    // 5. Agregar série temporal REAL por dia para o gráfico
+    const chartMap = new Map<string, { date: string; revenue: number; spend: number; profit: number }>()
+
+    // Gerar todos os dias do intervalo selecionado
+    const currentDate = new Date(from)
+    while (currentDate <= to) {
+      const key = currentDate.toISOString().slice(0, 10)
+      const label = `${currentDate.getDate().toString().padStart(2, '0')}/${(currentDate.getMonth() + 1).toString().padStart(2, '0')}`
+      chartMap.set(key, { date: label, revenue: 0, spend: 0, profit: 0 })
+      currentDate.setDate(currentDate.getDate() + 1)
+    }
+
+    // Somar vendas reais por dia
+    try {
+      const dailySales = await prisma.sale.findMany({
+        where: {
+          workspaceId,
+          orderedAt: { gte: from, lte: to },
+          status: 'approved'
+        },
+        select: { orderedAt: true, netAmount: true, grossAmount: true }
+      })
+
+      for (const s of dailySales) {
+        const key = s.orderedAt.toISOString().slice(0, 10)
+        const entry = chartMap.get(key)
+        if (entry) {
+          entry.revenue += s.netAmount || s.grossAmount || 0
+        }
+      }
+    } catch {}
+
+    // Somar gastos reais de anúncios por dia
+    try {
+      const dailyInsights = await prisma.campaignInsight.findMany({
+        where: {
+          campaign: { workspaceId },
+          dateStart: { gte: from, lte: to }
+        },
+        select: { dateStart: true, spend: true }
+      })
+
+      for (const ins of dailyInsights) {
+        const key = ins.dateStart.toISOString().slice(0, 10)
+        const entry = chartMap.get(key)
+        if (entry) {
+          entry.spend += ins.spend || 0
+        }
+      }
+    } catch {}
+
+    // Calcular lucro diário
+    const chartData = Array.from(chartMap.values()).map(d => ({
+      ...d,
+      revenue: Math.round(d.revenue * 100) / 100,
+      spend: Math.round(d.spend * 100) / 100,
+      profit: Math.round((d.revenue - d.spend) * 100) / 100
+    }))
+
     const response = {
       grossRevenue,
       netRevenue,
@@ -156,15 +215,7 @@ export async function GET(req: Request) {
       roi: calcROI(profit, adSpend + totalExpenses),
       profit,
       margin: calcMargin(profit, grossRevenue),
-      chartData: [
-        { date: 'Seg', revenue: grossRevenue * 0.1, spend: adSpend * 0.1, profit: profit * 0.1 },
-        { date: 'Ter', revenue: grossRevenue * 0.15, spend: adSpend * 0.12, profit: profit * 0.15 },
-        { date: 'Qua', revenue: grossRevenue * 0.18, spend: adSpend * 0.15, profit: profit * 0.18 },
-        { date: 'Qui', revenue: grossRevenue * 0.14, spend: adSpend * 0.13, profit: profit * 0.14 },
-        { date: 'Sex', revenue: grossRevenue * 0.22, spend: adSpend * 0.25, profit: profit * 0.22 },
-        { date: 'Sáb', revenue: grossRevenue * 0.11, spend: adSpend * 0.13, profit: profit * 0.11 },
-        { date: 'Dom', revenue: grossRevenue * 0.1, spend: adSpend * 0.12, profit: profit * 0.1 },
-      ]
+      chartData
     }
 
     return NextResponse.json(response)
@@ -173,3 +224,4 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 }
+

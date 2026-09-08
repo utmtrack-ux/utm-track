@@ -4,31 +4,41 @@ Este documento detalha como conectar cada plataforma ao UTM-Track.
 
 ---
 
-## 1. Meta Ads (Facebook & Instagram)
+## 1. Meta Ads (Marketing API & OAuth Oficial)
 
 ### Pré-requisitos
 1. Uma conta no [Meta for Developers](https://developers.facebook.com/).
-2. Um aplicativo registrado com o tipo **Business**.
-3. Permissões necessárias:
-   - `ads_read`
-   - `ads_management`
-   - `business_management`
-   - `read_insights`
+2. Um aplicativo registrado com o tipo de caso de uso **Negócios** (Business).
+3. Adicionar o produto **Marketing API** e **Facebook Login for Business** no painel do aplicativo.
+4. Configurar as URLs de redirecionamento no Facebook Login:
+   - `https://seu-dominio.com/api/meta/callback`
+   - `http://localhost:3000/api/meta/callback` (para testes locais)
 
-### Configuração no `.env`
+### Permissões Solicitadas
+- `ads_read`: Permite listar contas de anúncios, campanhas, conjuntos de anúncios e criativos.
+- `read_insights`: Permite consultar métricas agregadas e relatórios de desempenho de anúncios (gasto, impressões, cliques, conversões).
+- `ads_management`: Permite operações de sincronização e gerenciamento de status de anúncios.
+- `business_management`: Permite acessar contas vinculadas ao Gerenciador de Negócios (Business Manager).
+
+> **Nota sobre App Review da Meta:**
+> Durante o desenvolvimento (modo Development do App), apenas administradores, desenvolvedores e testadores adicionados no Meta App podem autenticar via OAuth.
+> Para liberar o OAuth para qualquer cliente final externo, o aplicativo precisará passar pelo **App Review** da Meta para as permissões `ads_read` e `read_insights`.
+
+### Variáveis de Ambiente Necessárias
+Configure as seguintes variáveis na Vercel (Production) ou no seu arquivo `.env`:
 ```env
-META_APP_ID=seu_app_id
-META_APP_SECRET=seu_app_secret
-META_VERIFY_TOKEN=token_aleatorio_de_verificacao
+META_APP_ID=seu_meta_app_id
+META_APP_SECRET=seu_meta_app_secret
+NEXT_PUBLIC_APP_URL=https://seu-dominio.com
 ```
 
-### Fluxo de Conexão
-1. No menu lateral, acesse **Integrações** ou **Meta Ads**.
-2. Clique no botão **Conectar Meta Ads**.
-3. Autorize o aplicativo no Facebook.
-4. Ao retornar, o sistema lista todas as contas de anúncio às quais seu usuário tem acesso.
-5. Selecione as contas desejadas e clique em **Sincronizar**.
-6. As campanhas, conjuntos, anúncios e insights dos últimos 30 dias serão importados automaticamente.
+### Ciclo de Vida do Token e Segurança
+1. **OAuth com Proteção CSRF**: A URL de autorização gera um `state` assinado com HMAC-SHA256 vinculando o usuário autenticado ao seu workspace.
+2. **Troca por Long-Lived Token**: O código de autorização é trocado por um token de curta duração e imediatamente convertido para um **Long-Lived User Access Token** com validade de 60 dias.
+3. **Criptografia em Repouso**: Todos os tokens de acesso são cifrados com **AES-256-GCM** antes de serem salvos no banco de dados. Nunca são expostos no frontend ou em logs.
+4. **Seleção de Contas**: O usuário pode selecionar quais contas de anúncios deseja monitorar ativamente.
+5. **Detecção de Expiração**: Se o token for invalidado pelo usuário ou expirar, o UTM-Track marca a conta com o status `reconnect_required`, preservando todo o histórico financeiro intacto.
+
 
 ---
 
