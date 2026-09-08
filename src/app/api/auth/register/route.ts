@@ -68,6 +68,24 @@ export async function POST(req: Request) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ message: error.issues[0]?.message || 'Dados inválidos' }, { status: 400 })
     }
+
+    // Surface the real cause in the server logs (visible in `vercel logs` / the
+    // Runtime Logs tab). Never returned to the client.
+    console.error('[auth/register] falha ao criar conta:', error)
+
+    const code = (error as { code?: string })?.code
+    // Prisma unique-constraint: e-mail (or slug) já existe
+    if (code === 'P2002') {
+      return NextResponse.json({ message: 'E-mail já cadastrado' }, { status: 409 })
+    }
+    // P1000/P1001/P1002 = sem conexão com o banco · P2021/P2022 = tabela/coluna ausente
+    if (code && /^P(1\d{3}|2021|2022)$/.test(code)) {
+      return NextResponse.json(
+        { message: 'Serviço de banco de dados indisponível. Verifique a configuração de DATABASE_URL e se o schema foi aplicado.' },
+        { status: 503 }
+      )
+    }
+
     return NextResponse.json({ message: 'Erro interno do servidor' }, { status: 500 })
   }
 }
