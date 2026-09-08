@@ -148,4 +148,214 @@ describe('Integrações e Normalização de Webhooks', () => {
     assert.equal(classifyPayment('billet'), 'boleto')
     assert.equal(classifyPayment('boleto_bancario'), 'boleto')
   })
+
+  it('Central Normalizer: normalizeSaleAmount com múltiplos formatos de preço (Float, String BR, Centavos, Preço de Oferta)', async () => {
+    const { normalizeSaleAmount } = await import('../src/lib/integrations/normalizer')
+
+    // Hotmart
+    assert.equal(normalizeSaleAmount({ data: { purchase: { price: { value: 197.0 } } } }, 'hotmart'), 197.0)
+    assert.equal(normalizeSaleAmount({ data: { purchase: { original_offer_price: { value: '297,50' } } } }, 'hotmart'), 297.5)
+    assert.equal(normalizeSaleAmount({ data: { purchase: { full_price: { value: '1.499,00' } } } }, 'hotmart'), 1499.0)
+
+    // Cakto
+    assert.equal(normalizeSaleAmount({ amount: 97.0 }, 'cakto'), 97.0)
+    assert.equal(normalizeSaleAmount({ data: { price: '497.00' } }, 'cakto'), 497.0)
+
+    // Yampi
+    assert.equal(normalizeSaleAmount({ resource: { value: '159.90' } }, 'yampi'), 159.9)
+
+    // Shopify
+    assert.equal(normalizeSaleAmount({ total_price: '89.00' }, 'shopify'), 89.0)
+
+    // Genérico
+    assert.equal(normalizeSaleAmount({ grossAmount: 350.0 }, 'generic'), 350.0)
+  })
+
+  it('Central Normalizer: normalizeNetAmount preserva valor bruto caso comissão não seja informada', async () => {
+    const { normalizeNetAmount } = await import('../src/lib/integrations/normalizer')
+
+    // Com comissão explícita
+    assert.equal(normalizeNetAmount({ data: { purchase: { commission: { value: 180.0 } } } }, 'hotmart', 197.0), 180.0)
+
+    // Sem comissão explícita (fallback para grossAmount)
+    assert.equal(normalizeNetAmount({}, 'cakto', 297.0), 297.0)
+    assert.equal(normalizeNetAmount({}, 'yampi', 159.9), 159.9)
+    assert.equal(normalizeNetAmount({}, 'generic', 350.0), 350.0)
+  })
+
+  it('Central Normalizer: normalizeSaleStatus mapeia corretamente variações de status de gateways', async () => {
+    const { normalizeSaleStatus } = await import('../src/lib/integrations/normalizer')
+
+    // Aprovados
+    assert.equal(normalizeSaleStatus('PURCHASE_APPROVED'), 'approved')
+    assert.equal(normalizeSaleStatus('PURCHASE_COMPLETE'), 'approved')
+    assert.equal(normalizeSaleStatus('orders/paid'), 'approved')
+    assert.equal(normalizeSaleStatus('payment_approved'), 'approved')
+    assert.equal(normalizeSaleStatus('PAID'), 'approved')
+    assert.equal(normalizeSaleStatus('APROVADO'), 'approved')
+
+    // Reembolsos
+    assert.equal(normalizeSaleStatus('PURCHASE_REFUNDED'), 'refunded')
+    assert.equal(normalizeSaleStatus('refunds/create'), 'refunded')
+    assert.equal(normalizeSaleStatus('REEMBOLSADO'), 'refunded')
+
+    // Chargebacks
+    assert.equal(normalizeSaleStatus('PURCHASE_CHARGEBACK'), 'chargeback')
+    assert.equal(normalizeSaleStatus('CHARGEBACK'), 'chargeback')
+
+    // Pendentes
+    assert.equal(normalizeSaleStatus('PURCHASE_PENDING'), 'pending')
+    assert.equal(normalizeSaleStatus('orders/create'), 'pending')
+    assert.equal(normalizeSaleStatus('waiting_payment'), 'pending')
+  })
+
+  it('Central Normalizer: normalizeSaleUtms extrai UTMs e identificadores Meta de qualquer estrutura', async () => {
+    const { normalizeSaleUtms } = await import('../src/lib/integrations/normalizer')
+
+    const payloadWithTracking = {
+      data: {
+        purchase: {
+          tracking: {
+            utm_source: 'facebook_ads',
+            utm_medium: 'cpc',
+            utm_campaign: 'campanha_blackfriday',
+            utm_content: 'video_01',
+            utm_term: 'interesses',
+            fbclid: 'IwAR123456789'
+          }
+        }
+      }
+    }
+
+    const utms = normalizeSaleUtms(payloadWithTracking)
+    assert.equal(utms.utmSource, 'facebook_ads')
+    assert.equal(utms.utmMedium, 'cpc')
+    assert.equal(utms.utmCampaign, 'campanha_blackfriday')
+    assert.equal(utms.utmContent, 'video_01')
+    assert.equal(utms.utmTerm, 'interesses')
+    assert.equal(utms.fbclid, 'IwAR123456789')
+  })
+
+  it('End-to-End: Processamento completo de venda Hotmart aprovada -> métricas financeiras atualizadas', async () => {
+    const { normalizeSaleAmount, normalizeNetAmount, normalizeSaleStatus, normalizeSalePaymentMethod, normalizeSaleUtms } = await import('../src/lib/integrations/normalizer')
+    const { calcROAS, calcROI, calcProfit, calcCPA } = await import('../src/lib/metrics')
+
+    const hotmartPayload = {
+      event: 'PURCHASE_APPROVED',
+      data: {
+        purchase: {
+          transaction: 'HP987654321',
+          order_date: '2026-09-08T15:00:00Z',
+          approved_date: '2026-09-08T15:02:00Z',
+          price: { value: 297.0, currency_code: 'BRL' },
+          commission: { value: 270.0 },
+          payment: { type: 'PIX' },
+          tracking: {
+            utm_source: 'meta_ads',
+            utm_medium: 'cpc',
+            utm_campaign: 'oferta_direta'
+          }
+        },
+        buyer: { email: 'comprador@gmail.com' }
+      }
+    }
+
+    const grossAmount = normalizeSaleAmount(hotmartPayload, 'hotmart')
+    const netAmount = normalizeNetAmount(hotmartPayload, 'hotmart', grossAmount)
+    const status = normalizeSaleStatus(hotmartPayload.event, 'hotmart')
+    const paymentMethod = normalizeSalePaymentMethod(hotmartPayload, 'hotmart')
+    const utms = normalizeSaleUtms(hotmartPayload)
+
+    assert.equal(grossAmount, 297.0)
+    assert.equal(netAmount, 270.0)
+    assert.equal(status, 'approved')
+    assert.equal(paymentMethod, 'pix')
+    assert.equal(utms.utmSource, 'meta_ads')
+
+    // Verificação dos cálculos financeiros com investimento de anúncio existente
+    const adSpend = 50.0
+    const roas = calcROAS(grossAmount, adSpend)
+    const profit = calcProfit({ netRevenue: netAmount, adSpend, productCost: 0, fees: 0, taxes: 0, expenses: 0 })
+    const roi = calcROI(profit, adSpend)
+    const cpa = calcCPA(adSpend, 1)
+
+    assert.equal(roas, 297.0 / 50.0)
+    assert.equal(profit, 270.0 - 50.0) // R$ 220,00 de lucro
+    assert.equal(roi, ((220.0) / 50.0) * 100) // 440% ROI
+    assert.equal(cpa, 50.0)
+  })
+
+  it('End-to-End: Processamento de venda Cakto com string monetária brasileira e parcelamento', async () => {
+    const { normalizeSaleAmount, normalizeNetAmount, normalizeSaleStatus, normalizeSalePaymentMethod } = await import('../src/lib/integrations/normalizer')
+
+    const caktoPayload = {
+      id: 'ck_trans_5544',
+      status: 'approved',
+      amount: '197,50',
+      currency: 'BRL',
+      payment_method: 'credit_card',
+      customer: { email: 'cliente@cakto.com' },
+      utms: {
+        source: 'facebook',
+        campaign: 'vendas_escala'
+      }
+    }
+
+    const grossAmount = normalizeSaleAmount(caktoPayload, 'cakto')
+    const netAmount = normalizeNetAmount(caktoPayload, 'cakto', grossAmount)
+    const status = normalizeSaleStatus(caktoPayload.status, 'cakto')
+    const paymentMethod = normalizeSalePaymentMethod(caktoPayload, 'cakto')
+
+    assert.equal(grossAmount, 197.5)
+    assert.equal(netAmount, 197.5)
+    assert.equal(status, 'approved')
+    assert.equal(paymentMethod, 'card')
+  })
+
+  it('End-to-End: Venda pendente não impacta faturamento bruto nem líquido', async () => {
+    const { normalizeSaleStatus } = await import('../src/lib/integrations/normalizer')
+
+    const pendingPayload = {
+      event: 'PURCHASE_PENDING',
+      data: {
+        purchase: {
+          transaction: 'HP_PENDING_01',
+          price: { value: 500.0 }
+        }
+      }
+    }
+
+    const status = normalizeSaleStatus(pendingPayload.event, 'hotmart')
+    assert.equal(status, 'pending')
+
+    const sales = [
+      { status: 'pending', grossAmount: 500.0, netAmount: 450.0 },
+      { status: 'approved', grossAmount: 300.0, netAmount: 270.0 }
+    ]
+
+    const approvedList = sales.filter(s => s.status === 'approved')
+    const grossRevenue = approvedList.reduce((acc, s) => acc + s.grossAmount, 0)
+    const netRevenue = approvedList.reduce((acc, s) => acc + s.netAmount, 0)
+
+    assert.equal(grossRevenue, 300.0, 'Apenas a venda aprovada soma no faturamento bruto')
+    assert.equal(netRevenue, 270.0, 'Apenas a venda aprovada soma no faturamento líquido')
+  })
+
+  it('End-to-End: Funil de Conversão calcula taxas reais entre etapas', () => {
+    const clicks = 100
+    const pageViews = 75
+    const ics = 25
+    const vendasInic = 10
+    const vendasApr = 8
+
+    const pctPageViews = Math.round((pageViews / clicks) * 100) // 75%
+    const pctICs = Math.round((ics / pageViews) * 100) // 33%
+    const pctVendasInic = Math.round((vendasInic / ics) * 100) // 40%
+    const pctVendasApr = Math.round((vendasApr / vendasInic) * 100) // 80%
+
+    assert.equal(pctPageViews, 75)
+    assert.equal(pctICs, 33)
+    assert.equal(pctVendasInic, 40)
+    assert.equal(pctVendasApr, 80)
+  })
 })

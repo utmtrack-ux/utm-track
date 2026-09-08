@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { upsertSale } from '@/lib/integrations/normalizer'
+import { 
+  normalizeSaleAmount, 
+  normalizeNetAmount, 
+  normalizeSaleStatus, 
+  normalizeSalePaymentMethod, 
+  normalizeSaleUtms, 
+  upsertSale 
+} from '@/lib/integrations/normalizer'
 import { createSaleNotification, SaleNotificationType } from '@/lib/notifications/service'
 import crypto from 'crypto'
 
@@ -54,23 +61,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, message: 'Already processed' })
     }
 
-    let status: 'approved' | 'pending' | 'refunded' | 'chargeback' | 'cancelled' = 'pending'
-    if (topic === 'orders/paid') status = 'approved'
-    else if (topic === 'refunds/create') status = 'refunded'
-    else if (topic === 'orders/cancelled') status = 'cancelled'
-    else if (topic === 'orders/create') status = 'pending'
-    else {
-      return NextResponse.json({ success: true })
-    }
-
-    const attributes = body.note_attributes || []
-    const getAttr = (name: string): string | undefined => {
-      const attr = attributes.find((a: Record<string, unknown>) => a.name === name)
-      return attr ? String(attr.value) : undefined
-    }
-
-    const gateway = (body.gateway || body.payment_gateway_names?.[0] || '').toLowerCase()
-    const paymentMethod = gateway.includes('pix') ? 'pix' : (gateway.includes('boleto') || gateway.includes('billet')) ? 'boleto' : 'card'
+    const status = normalizeSaleStatus(topic, 'shopify')
+    const grossPrice = normalizeSaleAmount(body, 'shopify')
+    const netPrice = normalizeNetAmount(body, 'shopify', grossPrice)
+    const paymentMethod = normalizeSalePaymentMethod(body, 'shopify')
+    const utms = normalizeSaleUtms(body)
 
     await prisma.webhookEvent.create({
       data: {
@@ -82,25 +77,25 @@ export async function POST(req: Request) {
       }
     })
 
-    const totalPrice = parseFloat(body.total_price || '0')
-    const refundedPrice = parseFloat(body.total_refunded_amount || '0')
-    const netPrice = Math.max(0, totalPrice - refundedPrice)
-
     const sale = await upsertSale({
       workspaceId,
       platform: 'shopify',
       externalId: String(body.id),
       externalRef: paymentMethod,
       status,
-      grossAmount: totalPrice,
-      netAmount: netPrice > 0 ? netPrice : totalPrice,
-      currency: body.currency || 'BRL',
-      customerEmail: body.email,
-      utmSource: getAttr('utm_source'),
-      utmMedium: getAttr('utm_medium'),
-      utmCampaign: getAttr('utm_campaign'),
-      utmContent: getAttr('utm_content'),
-      utmTerm: getAttr('utm_term'),
+      grossAmount: grossPrice,
+      netAmount: netPrice,
+      currency: String(body.currency || 'BRL'),
+      customerEmail: body.email ? String(body.email) : undefined,
+      utmSource: utms.utmSource,
+      utmMedium: utms.utmMedium,
+      utmCampaign: utms.utmCampaign,
+      utmContent: utms.utmContent,
+      utmTerm: utms.utmTerm,
+      fbclid: utms.fbclid,
+      fbp: utms.fbp,
+      fbc: utms.fbc,
+      sessionId: utms.sessionId,
       orderedAt: new Date(body.created_at || Date.now()),
       approvedAt: status === 'approved' ? new Date() : undefined,
       refundedAt: status === 'refunded' ? new Date() : undefined
@@ -110,13 +105,13 @@ export async function POST(req: Request) {
     let notifType: SaleNotificationType = 'sale_pending'
     if (status === 'approved') notifType = 'sale_approved'
     else if (status === 'refunded') notifType = 'refund'
-    else if (gateway.includes('pix')) notifType = 'pix_pending'
+    else if (paymentMethod === 'pix') notifType = 'pix_pending'
 
     await createSaleNotification({
       workspaceId,
       type: notifType,
-      amount: totalPrice,
-      currency: body.currency || 'BRL',
+      amount: grossPrice,
+      currency: String(body.currency || 'BRL'),
       platform: 'Shopify',
       product: body.line_items?.[0]?.title,
       saleId: sale.id,

@@ -24,7 +24,7 @@ export function getDateRange(preset: string): DateRange {
 
   // 1. Hoje
   if (normalized === "hoje" || normalized === "today") {
-    return { from: startOfDay(now), to: now, label: "Hoje" };
+    return { from: startOfDay(now), to: endOfDay(now), label: "Hoje" };
   }
 
   // 2. Ontem
@@ -35,32 +35,32 @@ export function getDateRange(preset: string): DateRange {
 
   // 3. Últimos 7 dias
   if (normalized.includes("7") || normalized === "last7days") {
-    return { from: startOfDay(subDays(now, 6)), to: now, label: "Últimos 7 dias" };
+    return { from: startOfDay(subDays(now, 6)), to: endOfDay(now), label: "Últimos 7 dias" };
   }
 
   // 4. Últimos 15 dias
   if (normalized.includes("15") || normalized === "last15days") {
-    return { from: startOfDay(subDays(now, 14)), to: now, label: "Últimos 15 dias" };
+    return { from: startOfDay(subDays(now, 14)), to: endOfDay(now), label: "Últimos 15 dias" };
   }
 
   // 5. Últimos 30 dias
   if (normalized.includes("30") || normalized === "last30days") {
-    return { from: startOfDay(subDays(now, 29)), to: now, label: "Últimos 30 dias" };
+    return { from: startOfDay(subDays(now, 29)), to: endOfDay(now), label: "Últimos 30 dias" };
   }
 
   // 6. Últimos 60 dias
   if (normalized.includes("60") || normalized === "last60days") {
-    return { from: startOfDay(subDays(now, 59)), to: now, label: "Últimos 60 dias" };
+    return { from: startOfDay(subDays(now, 59)), to: endOfDay(now), label: "Últimos 60 dias" };
   }
 
   // 7. Últimos 90 dias
   if (normalized.includes("90") || normalized === "last90days") {
-    return { from: startOfDay(subDays(now, 89)), to: now, label: "Últimos 90 dias" };
+    return { from: startOfDay(subDays(now, 89)), to: endOfDay(now), label: "Últimos 90 dias" };
   }
 
   // 8. Este mês
   if (normalized.includes("este m") || normalized === "thismonth") {
-    return { from: startOfMonth(now), to: now, label: "Este mês" };
+    return { from: startOfMonth(now), to: endOfMonth(now), label: "Este mês" };
   }
 
   // 9. Mês anterior
@@ -74,7 +74,7 @@ export function getDateRange(preset: string): DateRange {
   }
 
   // Fallback padrão: Últimos 30 dias
-  return { from: startOfDay(subDays(now, 29)), to: now, label: "Últimos 30 dias" };
+  return { from: startOfDay(subDays(now, 29)), to: endOfDay(now), label: "Últimos 30 dias" };
 }
 
 export function formatDate(date: Date | string, pattern = "dd/MM/yyyy"): string {

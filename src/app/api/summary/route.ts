@@ -47,13 +47,25 @@ export async function GET(req: Request) {
     })
 
     const totalSales = sales.length
-    const approvedSales = sales.filter(s => s.status === 'approved')
-    const pendingSales = sales.filter(s => s.status === 'pending')
-    const refundedSales = sales.filter(s => s.status === 'refunded')
-    const chargebackSales = sales.filter(s => s.status === 'chargeback')
+    const approvedSales = sales.filter(s => {
+      const st = (s.status || '').toLowerCase()
+      return st === 'approved' || st === 'paid' || st === 'aprovado' || st === 'pago' || st === 'completed'
+    })
+    const pendingSales = sales.filter(s => {
+      const st = (s.status || '').toLowerCase()
+      return st === 'pending' || st === 'waiting_payment' || st === 'aguardando' || st === 'gerado'
+    })
+    const refundedSales = sales.filter(s => {
+      const st = (s.status || '').toLowerCase()
+      return st === 'refunded' || st === 'reembolsado' || st === 'estornado'
+    })
+    const chargebackSales = sales.filter(s => {
+      const st = (s.status || '').toLowerCase()
+      return st === 'chargeback' || st === 'dispute'
+    })
 
     const grossRevenue = approvedSales.reduce((acc, s) => acc + s.grossAmount, 0)
-    const netRevenue = approvedSales.reduce((acc, s) => acc + s.netAmount, 0)
+    const netRevenue = approvedSales.reduce((acc, s) => acc + (s.netAmount > 0 ? s.netAmount : s.grossAmount), 0)
     const pendingAmount = pendingSales.reduce((acc, s) => acc + s.grossAmount, 0)
     const refundAmount = refundedSales.reduce((acc, s) => acc + s.grossAmount, 0)
     const chargebackAmount = chargebackSales.reduce((acc, s) => acc + s.grossAmount, 0)

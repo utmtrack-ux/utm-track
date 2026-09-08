@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { upsertSale } from '@/lib/integrations/normalizer'
+import { 
+  normalizeSaleAmount, 
+  normalizeNetAmount, 
+  normalizeSaleStatus, 
+  normalizeSalePaymentMethod, 
+  normalizeSaleUtms, 
+  upsertSale 
+} from '@/lib/integrations/normalizer'
 import { createSaleNotification, SaleNotificationType } from '@/lib/notifications/service'
 
 export async function POST(req: Request) {
@@ -15,14 +22,8 @@ export async function POST(req: Request) {
     const queryWs = searchParams.get('workspaceId') || searchParams.get('workspace_id') || req.headers.get('x-workspace-id')
 
     const body = await req.json()
-    // Cakto webhook supports standard structure (event / data or flat payload)
     const id = body.id || body.data?.id || body.data?.transaction?.id || body.transaction_id || body.order_id
-    const caktoStatus = (body.status || body.event || body.data?.status || body.data?.event || '').toString().toLowerCase()
-    const amount = Number(body.amount || body.data?.amount || body.data?.price || body.data?.total || 0)
-    const currency = body.currency || body.data?.currency || 'BRL'
-    const email = body.email || body.customer?.email || body.data?.customer?.email || body.data?.buyer?.email
-    const utms = body.utms || body.utm || body.data?.utms || body.tracking || body.data?.tracking || {}
-    const created_at = body.created_at || body.data?.created_at || body.createdAt
+    const rawStatus = (body.status || body.event || body.data?.status || body.data?.event || '').toString()
 
     if (!id) {
       return NextResponse.json({ error: 'Invalid payload: missing transaction id' }, { status: 400 })
@@ -42,20 +43,13 @@ export async function POST(req: Request) {
       workspaceId = defaultWs.id
     }
 
-    let status: 'approved' | 'pending' | 'refunded' | 'chargeback' | 'cancelled' = 'pending'
-    if (caktoStatus.includes('approved') || caktoStatus.includes('paid') || caktoStatus.includes('complete') || caktoStatus === 'purchase_approved') {
-      status = 'approved'
-    } else if (caktoStatus.includes('refund')) {
-      status = 'refunded'
-    } else if (caktoStatus.includes('chargeback')) {
-      status = 'chargeback'
-    } else if (caktoStatus.includes('cancel') || caktoStatus.includes('fail') || caktoStatus.includes('refused')) {
-      status = 'cancelled'
-    } else if (caktoStatus.includes('waiting') || caktoStatus.includes('pending') || caktoStatus.includes('pix')) {
-      status = 'pending'
-    }
+    const status = normalizeSaleStatus(rawStatus, 'cakto')
+    const grossPrice = normalizeSaleAmount(body, 'cakto')
+    const netPrice = normalizeNetAmount(body, 'cakto', grossPrice)
+    const paymentMethod = normalizeSalePaymentMethod(body, 'cakto')
+    const utms = normalizeSaleUtms(body)
 
-    const idempotencyKey = `cakto_${id}_${status}_${caktoStatus}`
+    const idempotencyKey = `cakto_${id}_${status}_${rawStatus}`
     const existingWebhook = await prisma.webhookEvent.findUnique({
       where: { idempotencyKey }
     })
@@ -64,18 +58,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, message: 'Already processed (idempotent)' })
     }
 
-    const paymentType = (body.payment_method || body.data?.payment_method || body.data?.payment?.type || '').toLowerCase()
-    const paymentMethod = paymentType.includes('pix') || caktoStatus.includes('pix') ? 'pix' : (paymentType.includes('boleto') || paymentType.includes('billet')) ? 'boleto' : 'card'
-
     await prisma.webhookEvent.create({
       data: {
         idempotencyKey,
         workspaceId,
         source: 'cakto',
-        eventType: caktoStatus || 'unknown',
+        eventType: rawStatus || 'unknown',
         payload: JSON.stringify(body)
       }
     })
+
+    const email = body.email || body.customer?.email || body.data?.customer?.email || body.data?.buyer?.email
+    const created_at = body.created_at || body.data?.created_at || body.createdAt
 
     const sale = await upsertSale({
       workspaceId,
@@ -83,15 +77,19 @@ export async function POST(req: Request) {
       externalId: id.toString(),
       externalRef: paymentMethod,
       status,
-      grossAmount: amount || 0,
-      netAmount: amount || 0,
-      currency: currency || 'BRL',
-      customerEmail: email,
-      utmSource: utms?.source || utms?.utm_source,
-      utmMedium: utms?.medium || utms?.utm_medium,
-      utmCampaign: utms?.campaign || utms?.utm_campaign,
-      utmContent: utms?.content || utms?.utm_content,
-      utmTerm: utms?.term || utms?.utm_term,
+      grossAmount: grossPrice,
+      netAmount: netPrice,
+      currency: String(body.currency || body.data?.currency || 'BRL'),
+      customerEmail: email ? String(email) : undefined,
+      utmSource: utms.utmSource,
+      utmMedium: utms.utmMedium,
+      utmCampaign: utms.utmCampaign,
+      utmContent: utms.utmContent,
+      utmTerm: utms.utmTerm,
+      fbclid: utms.fbclid,
+      fbp: utms.fbp,
+      fbc: utms.fbc,
+      sessionId: utms.sessionId,
       orderedAt: new Date(created_at || Date.now()),
       approvedAt: status === 'approved' ? new Date() : undefined,
       refundedAt: status === 'refunded' ? new Date() : undefined
@@ -102,13 +100,13 @@ export async function POST(req: Request) {
     if (status === 'approved') notifType = 'sale_approved'
     else if (status === 'refunded') notifType = 'refund'
     else if (status === 'chargeback') notifType = 'chargeback'
-    else if (caktoStatus.includes('pix') || paymentType.includes('pix')) notifType = 'pix_pending'
+    else if (rawStatus.toLowerCase().includes('pix') || paymentMethod === 'pix') notifType = 'pix_pending'
 
     await createSaleNotification({
       workspaceId,
       type: notifType,
-      amount: amount || 0,
-      currency: currency || 'BRL',
+      amount: grossPrice,
+      currency: String(body.currency || body.data?.currency || 'BRL'),
       platform: 'Cakto',
       saleId: sale.id,
       transactionId: id.toString(),

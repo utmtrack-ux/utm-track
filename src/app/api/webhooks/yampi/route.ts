@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { upsertSale } from '@/lib/integrations/normalizer'
+import { 
+  normalizeSaleAmount, 
+  normalizeNetAmount, 
+  normalizeSaleStatus, 
+  normalizeSalePaymentMethod, 
+  normalizeSaleUtms, 
+  upsertSale 
+} from '@/lib/integrations/normalizer'
 import { createSaleNotification, SaleNotificationType } from '@/lib/notifications/service'
 
 export async function POST(req: Request) {
@@ -37,15 +44,14 @@ export async function POST(req: Request) {
       workspaceId = defaultWs.id
     }
 
-    let status: 'approved' | 'pending' | 'refunded' | 'chargeback' | 'cancelled' = 'pending'
-    const alias = order.status?.alias || order.status || 'unknown'
-    if (alias === 'payment_approved' || alias === 'paid') status = 'approved'
-    else if (alias === 'refunded') status = 'refunded'
-    else if (alias === 'chargeback') status = 'chargeback'
-    else if (alias === 'cancelled') status = 'cancelled'
-    else if (alias === 'pending') status = 'pending'
+    const alias = String(order.status?.alias || order.status || 'unknown')
+    const status = normalizeSaleStatus(alias, 'yampi')
+    const grossPrice = normalizeSaleAmount(body, 'yampi')
+    const netPrice = normalizeNetAmount(body, 'yampi', grossPrice)
+    const paymentMethod = normalizeSalePaymentMethod(body, 'yampi')
+    const utms = normalizeSaleUtms(body)
 
-    const orderId = order.id ? order.id.toString() : String(Date.now())
+    const orderId = order.id ? String(order.id) : String(Date.now())
     const idempotencyKey = `yampi_${orderId}_${alias}`
     const existingWebhook = await prisma.webhookEvent.findUnique({
       where: { idempotencyKey }
@@ -54,9 +60,6 @@ export async function POST(req: Request) {
     if (existingWebhook) {
       return NextResponse.json({ success: true, message: 'Already processed' })
     }
-
-    const paymentType = (order.payment_method || order.payment?.method || '').toLowerCase()
-    const paymentMethod = paymentType.includes('pix') || alias.includes('pix') ? 'pix' : (paymentType.includes('boleto') || paymentType.includes('billet')) ? 'boleto' : 'card'
 
     await prisma.webhookEvent.create({
       data: {
@@ -69,7 +72,6 @@ export async function POST(req: Request) {
     })
 
     const createdAt = order.created_at?.date || order.created_at || Date.now()
-    const grossVal = order.value ? parseFloat(order.value) : (order.total ? parseFloat(order.total) : 0)
 
     const sale = await upsertSale({
       workspaceId,
@@ -77,15 +79,19 @@ export async function POST(req: Request) {
       externalId: orderId,
       externalRef: paymentMethod,
       status,
-      grossAmount: grossVal,
-      netAmount: grossVal,
+      grossAmount: grossPrice,
+      netAmount: netPrice,
       currency: 'BRL',
-      customerEmail: order.customer?.email,
-      utmSource: order.utm_source,
-      utmMedium: order.utm_medium,
-      utmCampaign: order.utm_campaign,
-      utmContent: order.utm_content,
-      utmTerm: order.utm_term,
+      customerEmail: order.customer?.email ? String(order.customer.email) : undefined,
+      utmSource: utms.utmSource || order.utm_source,
+      utmMedium: utms.utmMedium || order.utm_medium,
+      utmCampaign: utms.utmCampaign || order.utm_campaign,
+      utmContent: utms.utmContent || order.utm_content,
+      utmTerm: utms.utmTerm || order.utm_term,
+      fbclid: utms.fbclid,
+      fbp: utms.fbp,
+      fbc: utms.fbc,
+      sessionId: utms.sessionId,
       orderedAt: new Date(createdAt),
       approvedAt: status === 'approved' ? new Date() : undefined,
       refundedAt: status === 'refunded' ? new Date() : undefined
@@ -96,12 +102,12 @@ export async function POST(req: Request) {
     if (status === 'approved') notifType = 'sale_approved'
     else if (status === 'refunded') notifType = 'refund'
     else if (status === 'chargeback') notifType = 'chargeback'
-    else if (alias.includes('pix') || paymentType.includes('pix')) notifType = 'pix_pending'
+    else if (alias.includes('pix') || paymentMethod === 'pix') notifType = 'pix_pending'
 
     await createSaleNotification({
       workspaceId,
       type: notifType,
-      amount: grossVal,
+      amount: grossPrice,
       currency: 'BRL',
       platform: 'Yampi',
       saleId: sale.id,
