@@ -1,125 +1,45 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Loader2 } from 'lucide-react'
+import { ShieldAlert, ArrowLeft, Lock } from 'lucide-react'
 import { UtmTrackLogo } from '@/components/brand/logo'
 
 export default function RegisterPage() {
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  const router = useRouter()
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-
-    if (password !== confirmPassword) {
-      setError('As senhas não coincidem.')
-      setLoading(false)
-      return
-    }
-
-    try {
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password }),
-      })
-
-      if (res.ok) {
-        router.push('/login')
-      } else {
-        const data = await res.json()
-        setError(data.message || 'Erro ao criar conta.')
-      }
-    } catch (err) {
-      setError('Ocorreu um erro inesperado.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
   return (
     <div className="w-full max-w-md space-y-8">
       <div className="flex flex-col items-center text-center">
         <UtmTrackLogo size="lg" showTagline />
-        <p className="mt-3 text-sm text-gray-600 dark:text-gray-400">Crie sua conta para começar</p>
       </div>
 
-      <div className="bg-white dark:bg-[#081A33] rounded-2xl shadow-xl border border-slate-200 dark:border-[#142C52] p-8">
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {error && (
-            <div className="p-3 bg-red-100 dark:bg-red-950/40 border border-red-400 dark:border-red-800 text-red-700 dark:text-red-300 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
-          
-          <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Nome</label>
-            <input
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="mt-1 block w-full px-3.5 py-2.5 border border-slate-300 dark:border-[#142C52] rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-[#0066FF] sm:text-sm bg-slate-50 dark:bg-[#061326] text-slate-900 dark:text-white"
-            />
+      <div className="bg-white dark:bg-[#081A33] rounded-2xl shadow-xl border border-slate-200 dark:border-[#142C52] p-8 text-center space-y-6">
+        <div className="mx-auto w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500">
+          <Lock className="w-7 h-7" />
+        </div>
+
+        <div className="space-y-2">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+            Cadastro Restrito
+          </h1>
+          <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+            O UTM-Track é uma plataforma privada de inteligência e atribuição de anúncios. Novos acessos são disponibilizados exclusivamente pelo administrador do sistema.
+          </p>
+        </div>
+
+        <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#061326] border border-slate-200 dark:border-[#142C52] text-xs text-slate-500 dark:text-slate-400 text-left space-y-1.5">
+          <div className="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-200">
+            <ShieldAlert className="w-4 h-4 text-[#0066FF]" /> Já é cliente autorizado?
           </div>
+          <p>
+            Utilize suas credenciais enviadas pelo administrador para entrar na plataforma.
+          </p>
+        </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">E-mail</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 block w-full px-3.5 py-2.5 border border-slate-300 dark:border-[#142C52] rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-[#0066FF] sm:text-sm bg-slate-50 dark:bg-[#061326] text-slate-900 dark:text-white"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Senha</label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full px-3.5 py-2.5 border border-slate-300 dark:border-[#142C52] rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-[#0066FF] sm:text-sm bg-slate-50 dark:bg-[#061326] text-slate-900 dark:text-white"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Confirmar Senha</label>
-            <input
-              type="password"
-              required
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              className="mt-1 block w-full px-3.5 py-2.5 border border-slate-300 dark:border-[#142C52] rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-[#0066FF] sm:text-sm bg-slate-50 dark:bg-[#061326] text-slate-900 dark:text-white"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-lg shadow-md text-sm font-bold text-white bg-[#0066FF] hover:bg-[#0052CC] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0066FF] disabled:opacity-50 transition-colors"
-          >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Criar Conta'}
-          </button>
-        </form>
-
-        <p className="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">
-          Já tem uma conta?{' '}
-          <Link href="/login" className="font-semibold text-[#0066FF] hover:text-[#0052CC] dark:text-[#00D4FF] dark:hover:text-[#39E6FF]">
-            Entrar
-          </Link>
-        </p>
+        <Link
+          href="/login"
+          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg shadow-md text-sm font-bold text-white bg-[#0066FF] hover:bg-[#0052CC] transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" /> Voltar para o Login
+        </Link>
       </div>
     </div>
   )

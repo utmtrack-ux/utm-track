@@ -21,6 +21,11 @@ model User {
   emailVerified DateTime?
   image         String?
   password      String?   // hashed with bcrypt
+  role          String    @default("CLIENT") // ADMIN, CLIENT, SUPER_ADMIN
+  status        String    @default("ACTIVE") // ACTIVE, SUSPENDED, INVITED, DISABLED
+  mustChangePassword Boolean @default(false)
+  createdBy     String?
+  lastLoginAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -808,16 +813,19 @@ model Report {
 
 model AuditLog {
   id          String   @id @default(cuid())
-  workspaceId String
+  workspaceId String?
   userId      String?
-  action      String   // create, update, delete, connect, disconnect
-  resource    String   // ad_account, pixel, integration, etc.
+  userEmail   String?
+  action      String   // CREATE_USER, UPDATE_USER, SUSPEND_USER, ACTIVATE_USER, DELETE_USER, LOGIN, LOGOUT, ROLE_CHANGE, etc.
+  resource    String   // user, workspace, ad_account, pixel, integration, etc.
   resourceId  String?
   metadata    String?  // JSON
   ipAddress   String?
   createdAt   DateTime @default(now())
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, createdAt])
+  @@index([createdAt])
+  @@index([action])
 }

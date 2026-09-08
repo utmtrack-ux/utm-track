@@ -17,12 +17,14 @@ function LoginForm() {
   useEffect(() => {
     const errParam = searchParams.get('error')
     if (errParam) {
-      if (errParam === 'CredentialsSignin') {
+      if (errParam === 'USER_SUSPENDED') {
+        setError('Acesso temporariamente bloqueado. Entre em contato com o administrador do sistema.')
+      } else if (errParam === 'CredentialsSignin') {
         setError('E-mail ou senha incorretos.')
       } else if (errParam === 'Configuration') {
         setError('Erro de configuração no servidor de autenticação.')
       } else if (errParam === 'AccessDenied') {
-        setError('Acesso negado.')
+        setError('Acesso negado. Sua conta não possui permissão.')
       } else {
         setError(`Erro na autenticação: ${errParam}`)
       }
@@ -44,12 +46,14 @@ function LoginForm() {
       })
 
       if (res?.error) {
-        if (res.error === 'CredentialsSignin' || res.code === 'credentials') {
+        if (res.error.includes('USER_SUSPENDED')) {
+          setError('Acesso temporariamente bloqueado. Entre em contato com o administrador do sistema.')
+        } else if (res.error === 'CredentialsSignin' || res.code === 'credentials') {
           setError('E-mail ou senha incorretos.')
         } else if (res.error === 'Configuration') {
           setError('Erro de configuração de autenticação no servidor.')
         } else {
-          setError(`Não foi possível entrar (${res.error}). Verifique suas credenciais.`)
+          setError('Não foi possível entrar. Verifique suas credenciais de acesso.')
         }
       } else if (res?.ok) {
         // Redireciona com window.location para forçar a inicialização limpa da sessão
@@ -75,7 +79,7 @@ function LoginForm() {
       <div className="bg-white dark:bg-[#081A33] rounded-2xl shadow-xl border border-slate-200 dark:border-[#142C52] p-8">
         <form onSubmit={handleSubmit} className="space-y-6">
           {error && (
-            <div className="p-3 bg-red-100 dark:bg-red-950/40 border border-red-400 dark:border-red-800 text-red-700 dark:text-red-300 rounded-lg text-sm">
+            <div className="p-3 bg-red-100 dark:bg-red-950/40 border border-red-400 dark:border-red-800 text-red-700 dark:text-red-300 rounded-lg text-sm font-medium">
               {error}
             </div>
           )}
@@ -113,12 +117,9 @@ function LoginForm() {
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">
-          Não tem uma conta?{' '}
-          <Link href="/register" className="font-semibold text-[#0066FF] hover:text-[#0052CC] dark:text-[#00D4FF] dark:hover:text-[#39E6FF]">
-            Criar conta
-          </Link>
-        </p>
+        <div className="mt-6 pt-5 border-t border-slate-100 dark:border-[#142C52]/60 text-center text-xs text-slate-500 dark:text-slate-400">
+          <span>Sistema privado com acesso restrito a clientes autorizados.</span>
+        </div>
       </div>
     </div>
   )

@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import { useSession, signOut } from 'next-auth/react'
 import { useTheme } from '@/components/theme-provider'
 import { useQuery } from '@tanstack/react-query'
-import { Moon, Sun, Bell, LogOut, ChevronDown, Trophy, Globe } from 'lucide-react'
+import { Moon, Sun, Bell, LogOut, ChevronDown, Trophy, Globe, ShieldCheck } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { UtmTrackLogo } from '@/components/brand/logo'
 import { formatCurrency } from '@/lib/utils'
@@ -137,6 +137,15 @@ export function Header() {
               >
                 Minha Conta
               </a>
+              {((session?.user as any)?.role === 'ADMIN' || (session?.user as any)?.role === 'SUPER_ADMIN') && (
+                <a
+                  href="/admin"
+                  className="flex items-center px-4 py-2 text-xs text-blue-600 dark:text-blue-400 font-semibold hover:bg-blue-50 dark:hover:bg-blue-950/40"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 mr-2" />
+                  Painel Admin
+                </a>
+              )}
               <button
                 onClick={() => signOut({ callbackUrl: '/login' })}
                 className="w-full flex items-center px-4 py-2 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 font-semibold"

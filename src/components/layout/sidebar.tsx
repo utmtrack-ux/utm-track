@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 import { 
   BarChart2, 
   BarChart3, 
@@ -19,11 +20,13 @@ import {
   Bell,
   User,
   Settings,
+  ShieldCheck,
   Menu,
   X
 } from 'lucide-react'
 import { useState } from 'react'
 import { UtmTrackLogo } from '@/components/brand/logo'
+
 
 const navigation = [
   {
@@ -67,6 +70,7 @@ const navigation = [
 
 export function Sidebar() {
   const pathname = usePathname()
+  const { data: session } = useSession()
   const [isOpen, setIsOpen] = useState(false)
 
   // Auto-close mobile sidebar whenever pathname changes
@@ -142,6 +146,34 @@ export function Sidebar() {
               </div>
             </div>
           ))}
+
+          {/* Painel Administrativo (Exclusivo para ADMIN) */}
+          {session?.user && ((session.user as any).role === 'ADMIN' || (session.user as any).role === 'SUPER_ADMIN') && (
+            <div>
+              <h3 className="px-2 text-[11px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5" /> ADMINISTRAÇÃO
+              </h3>
+              <div className="space-y-1">
+                <Link
+                  href="/admin"
+                  onClick={closeSidebar}
+                  className={`flex items-center px-3 py-2.5 text-sm font-medium rounded-lg group transition-all duration-150 ${
+                    pathname.startsWith('/admin')
+                      ? 'bg-purple-600 text-white font-semibold shadow-md shadow-purple-600/25'
+                      : 'text-purple-700 dark:text-purple-300 bg-purple-50/70 dark:bg-purple-950/30 hover:bg-purple-100 dark:hover:bg-purple-950/60'
+                  }`}
+                >
+                  <ShieldCheck
+                    className={`mr-3 flex-shrink-0 h-5 w-5 ${
+                      pathname.startsWith('/admin') ? 'text-white' : 'text-purple-600 dark:text-purple-400'
+                    }`}
+                    aria-hidden="true"
+                  />
+                  Painel Admin
+                </Link>
+              </div>
+            </div>
+          )}
         </nav>
       </div>
       

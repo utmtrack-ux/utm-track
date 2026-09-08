@@ -46,19 +46,49 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             return null;
           }
 
+          // Bloqueio de usuários suspensos ou desativados
+          const status = String(user.status || "ACTIVE").toUpperCase();
+          if (status === "SUSPENDED" || status === "DISABLED") {
+            console.warn(`[auth] Tentativa de login de usuário bloqueado (${status}): ${email}`);
+            throw new Error("USER_SUSPENDED");
+          }
+
           const passwordMatch = await bcrypt.compare(password, user.password);
           if (!passwordMatch) {
             console.error("[auth] Senha não confere para:", email);
             return null;
           }
 
+          // Verificar se o usuário deve ser promovido a ADMIN via bootstrap inicial
+          const adminEmail = String(process.env.ADMIN_EMAIL || process.env.INITIAL_ADMIN_EMAIL || "").toLowerCase().trim();
+          let effectiveRole = String(user.role || "CLIENT").toUpperCase();
+
+          if (adminEmail && email === adminEmail && effectiveRole !== "ADMIN" && effectiveRole !== "SUPER_ADMIN") {
+            await prisma.user.update({
+              where: { id: user.id },
+              data: { role: "ADMIN" },
+            });
+            effectiveRole = "ADMIN";
+          }
+
+          // Atualizar timestamp do último login
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { lastLoginAt: new Date() },
+          }).catch(() => {});
+
           return {
             id: user.id,
             email: user.email,
             name: user.name,
             image: user.image,
+            role: effectiveRole,
+            status: user.status || "ACTIVE",
           };
         } catch (dbErr) {
+          if (dbErr instanceof Error && dbErr.message === "USER_SUSPENDED") {
+            throw dbErr;
+          }
           console.error("[auth] Erro no banco durante login:", dbErr);
           return null;
         }
@@ -71,6 +101,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.id = user.id;
         token.email = user.email;
         token.name = user.name;
+        token.role = (user as any).role || "CLIENT";
+        token.status = (user as any).status || "ACTIVE";
       }
       return token;
     },
@@ -79,6 +111,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.id = (token.id as string) || (token.sub as string);
         if (token.email) session.user.email = token.email as string;
         if (token.name) session.user.name = token.name as string;
+        (session.user as any).role = (token.role as string) || "CLIENT";
+        (session.user as any).status = (token.status as string) || "ACTIVE";
       }
       return session;
     },
