@@ -19,21 +19,29 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
 
+    const cleanEmail = email.trim().toLowerCase()
+
     try {
       const res = await signIn('credentials', {
-        email,
+        email: cleanEmail,
         password,
         redirect: false,
       })
 
       if (res?.error) {
-        setError('E-mail ou senha incorretos.')
+        if (res.error === 'CredentialsSignin' || res.code === 'credentials') {
+          setError('E-mail ou senha incorretos.')
+        } else {
+          setError('Não foi possível entrar. Verifique suas credenciais.')
+        }
+      } else if (res?.ok || res?.url) {
+        // Redireciona com window.location para forçar a inicialização limpa da sessão
+        window.location.href = '/dashboard'
       } else {
-        router.push('/dashboard')
-        router.refresh()
+        setError('E-mail ou senha incorretos.')
       }
     } catch (err) {
-      setError('Ocorreu um erro ao fazer login.')
+      setError('Ocorreu um erro ao conectar com o servidor. Tente novamente.')
     } finally {
       setLoading(false)
     }
