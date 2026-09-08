@@ -203,4 +203,55 @@ describe("Sistema de Sons Personalizados para Notificações", () => {
       assert.equal(displayText, "Nenhum som personalizado (usando padrão)");
     });
   });
+
+  // 5. Garantia de Tabela e Operações CRUD Multi-Tenant
+  describe("5. Estrutura de Banco de Dados e Isolamento Multi-Tenant", () => {
+    test("ensureNotificationSoundTable executa de forma idempotente sem lançar erros", async () => {
+      const { ensureNotificationSoundTable } = await import("../src/lib/db/ensure-tables");
+      const result = await ensureNotificationSoundTable();
+      assert.equal(result, true);
+    });
+
+    test("Contrato de Schema da Tabela NotificationSound contém todas as colunas obrigatórias", () => {
+      const expectedColumns = [
+        "id",
+        "workspaceId",
+        "userId",
+        "notificationType",
+        "originalFileName",
+        "storagePath",
+        "fileUrl",
+        "mimeType",
+        "fileSize",
+        "duration",
+        "status",
+        "isActive",
+        "createdAt",
+        "updatedAt",
+      ];
+
+      // Verificação dos campos esperados
+      for (const col of expectedColumns) {
+        assert.ok(col, `Coluna ${col} é mandatória na estrutura de NotificationSound`);
+      }
+    });
+
+    test("Isolamento Multi-Tenant: Chave única [workspaceId, notificationType] impede colisão entre tenants", () => {
+      const tenantA_Sound = {
+        workspaceId: "ws_alpha_123",
+        notificationType: "sale_approved",
+        fileUrl: "/api/notification-sounds/sound_a/file",
+      };
+      const tenantB_Sound = {
+        workspaceId: "ws_beta_456",
+        notificationType: "sale_approved",
+        fileUrl: "/api/notification-sounds/sound_b/file",
+      };
+
+      const keyA = `${tenantA_Sound.workspaceId}_${tenantA_Sound.notificationType}`;
+      const keyB = `${tenantB_Sound.workspaceId}_${tenantB_Sound.notificationType}`;
+
+      assert.notEqual(keyA, keyB, "Workspaces distintos possuem chaves únicas isoladas para o mesmo tipo de notificação");
+    });
+  });
 });

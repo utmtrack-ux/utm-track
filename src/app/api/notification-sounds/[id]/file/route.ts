@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import fs from "fs";
 import fsPromises from "fs/promises";
 import path from "path";
+import { ensureNotificationSoundTable } from "@/lib/db/ensure-tables";
 
 export async function GET(
   req: Request,
@@ -16,6 +17,8 @@ export async function GET(
     }
 
     const { id } = await params;
+
+    await ensureNotificationSoundTable();
 
     const sound = await prisma.notificationSound.findUnique({
       where: { id },

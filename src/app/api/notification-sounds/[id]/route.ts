@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getUserWorkspaceId } from "@/lib/workspace";
 import { deleteAudioFile } from "@/lib/notifications/sound-storage";
+import { ensureNotificationSoundTable } from "@/lib/db/ensure-tables";
 
 export async function GET(
   req: Request,
@@ -19,6 +20,8 @@ export async function GET(
   }
 
   const { id } = await params;
+
+  await ensureNotificationSoundTable();
 
   const sound = await prisma.notificationSound.findFirst({
     where: { id, workspaceId },

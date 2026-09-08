@@ -8,6 +8,7 @@ import {
   deleteAudioFile,
   RECOMMENDED_DURATION_SECONDS,
 } from "@/lib/notifications/sound-storage";
+import { ensureNotificationSoundTable } from "@/lib/db/ensure-tables";
 
 export const VALID_NOTIFICATION_TYPES = [
   "sale_approved",
@@ -29,6 +30,8 @@ export async function GET() {
   }
 
   try {
+    await ensureNotificationSoundTable();
+
     const sounds = await prisma.notificationSound.findMany({
       where: { workspaceId },
       orderBy: { createdAt: "desc" },
@@ -56,6 +59,8 @@ export async function POST(req: Request) {
   }
 
   try {
+    await ensureNotificationSoundTable();
+
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
     const notificationType = (formData.get("notificationType") as string || "").trim();
