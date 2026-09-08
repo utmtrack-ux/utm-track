@@ -152,25 +152,47 @@ export async function exchangeCodeForToken(
   appSecret: string
 ): Promise<{ accessToken: string; expiresIn?: number }> {
   const url = `${META_GRAPH_BASE}/oauth/access_token`;
-  const response = await axios.get(url, {
-    params: {
-      client_id: appId,
-      client_secret: appSecret,
-      redirect_uri: redirectUri,
-      code,
-    },
-    timeout: 15000,
-  });
+  try {
+    const response = await axios.get(url, {
+      params: {
+        client_id: appId,
+        client_secret: appSecret,
+        redirect_uri: redirectUri,
+        code,
+      },
+      timeout: 15000,
+    });
 
-  const accessToken = response.data?.access_token;
-  if (!accessToken) {
-    throw new Error('Meta não retornou access_token na troca de code');
+    const accessToken = response.data?.access_token;
+    if (!accessToken) {
+      throw new Error('Meta não retornou access_token na troca de code');
+    }
+
+    return {
+      accessToken,
+      expiresIn: response.data?.expires_in,
+    };
+  } catch (err: unknown) {
+    if (axios.isAxiosError(err)) {
+      const status = err.response?.status;
+      const errorData = err.response?.data?.error;
+      console.error('[Meta OAuth /oauth/access_token Diagnostic]', {
+        status,
+        code: errorData?.code,
+        type: errorData?.type,
+        message: errorData?.message,
+        error_subcode: errorData?.error_subcode,
+        redirectUriSent: redirectUri,
+      });
+
+      if (errorData?.message) {
+        const subcodeInfo = errorData.error_subcode ? ` (subcode ${errorData.error_subcode})` : '';
+        const codeInfo = errorData.code ? `[Code ${errorData.code}${subcodeInfo}] ` : '';
+        throw new Error(`${codeInfo}${errorData.message}`);
+      }
+    }
+    throw err;
   }
-
-  return {
-    accessToken,
-    expiresIn: response.data?.expires_in,
-  };
 }
 
 /**
