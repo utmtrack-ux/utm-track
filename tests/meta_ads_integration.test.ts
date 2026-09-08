@@ -168,4 +168,21 @@ describe('Meta Ads — Resolução Canônica de Redirect URI de Produção', () 
   })
 })
 
+describe('Meta Ads — Validação de Escopos OAuth (Sem read_insights inválido)', () => {
+  it('Não inclui o escopo inválido "read_insights"', () => {
+    const { META_OAUTH_SCOPES } = require('../src/lib/meta/oauth')
+    assert.equal(META_OAUTH_SCOPES.includes('read_insights'), false)
+  })
+
+  it('Inclui as permissões válidas necessárias: ads_read, ads_management, business_management', () => {
+    const { META_OAUTH_SCOPES } = require('../src/lib/meta/oauth')
+    const scopes = META_OAUTH_SCOPES.split(',')
+
+    assert.ok(scopes.includes('ads_read'))
+    assert.ok(scopes.includes('ads_management'))
+    assert.ok(scopes.includes('business_management'))
+    assert.equal(scopes.length, 3)
+  })
+})
+
 

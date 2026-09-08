@@ -5,6 +5,7 @@ const META_GRAPH_VERSION = 'v21.0';
 const META_GRAPH_BASE = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
 
 export const PRODUCTION_APP_URL = 'https://utm-track-navy.vercel.app';
+export const META_OAUTH_SCOPES = 'ads_read,ads_management,business_management';
 
 /**
  * Resolve the canonical application base URL for OAuth callbacks and external integrations.

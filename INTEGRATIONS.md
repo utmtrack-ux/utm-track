@@ -15,14 +15,13 @@ Este documento detalha como conectar cada plataforma ao UTM-Track.
    - `http://localhost:3000/api/meta/callback` (para testes locais)
 
 ### Permissões Solicitadas
-- `ads_read`: Permite listar contas de anúncios, campanhas, conjuntos de anúncios e criativos.
-- `read_insights`: Permite consultar métricas agregadas e relatórios de desempenho de anúncios (gasto, impressões, cliques, conversões).
+- `ads_read`: Permite listar contas de anúncios, campanhas, conjuntos de anúncios, anúncios e consultar métricas agregadas de insights (gasto, impressões, cliques, conversões).
 - `ads_management`: Permite operações de sincronização e gerenciamento de status de anúncios.
 - `business_management`: Permite acessar contas vinculadas ao Gerenciador de Negócios (Business Manager).
 
 > **Nota sobre App Review da Meta:**
 > Durante o desenvolvimento (modo Development do App), apenas administradores, desenvolvedores e testadores adicionados no Meta App podem autenticar via OAuth.
-> Para liberar o OAuth para qualquer cliente final externo, o aplicativo precisará passar pelo **App Review** da Meta para as permissões `ads_read` e `read_insights`.
+> Para liberar o OAuth para qualquer cliente final externo, o aplicativo precisará passar pelo **App Review** da Meta para as permissões `ads_read` e `ads_management`.
 
 ### Variáveis de Ambiente Necessárias
 Configure as seguintes variáveis na Vercel (Production) ou no seu arquivo `.env`:

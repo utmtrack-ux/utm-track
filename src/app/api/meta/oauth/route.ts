@@ -1,7 +1,7 @@
 import { auth } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { getUserWorkspaceId } from '@/lib/workspace'
-import { generateOAuthState, getMetaRedirectUri } from '@/lib/meta/oauth'
+import { generateOAuthState, getMetaRedirectUri, META_OAUTH_SCOPES } from '@/lib/meta/oauth'
 
 export async function GET(request: Request) {
   const session = await auth()
@@ -27,7 +27,7 @@ export async function GET(request: Request) {
   const params = new URLSearchParams({
     client_id: appId,
     redirect_uri: redirectUri,
-    scope: 'ads_read,read_insights,ads_management,business_management',
+    scope: META_OAUTH_SCOPES,
     response_type: 'code',
     state,
   })
