@@ -44,10 +44,37 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const customTitle = body.title || "UTM-Track";
-    const customMessage =
-      body.message || "Notificação de teste recebida com sucesso. Seu aplicativo está configurado corretamente.";
-    const sound = body.sound || "som_venda_aprovada";
+    const testType = body.type || "general";
+    
+    let defaultTitle = "🔔 UTM-Track";
+    let defaultMessage = "Notificação de teste recebida com sucesso. Seu aplicativo está configurado corretamente para receber notificações push.";
+    let defaultSound = "som_venda_aprovada";
+
+    if (testType === "sale_approved") {
+      defaultTitle = "💰 Venda aprovada!";
+      defaultMessage = "Venda de R$ 151,04 aprovada na Hotmart.";
+      defaultSound = "som_venda_aprovada";
+    } else if (testType === "pix_pending") {
+      defaultTitle = "⚡ Pix gerado";
+      defaultMessage = "Um Pix de R$ 151,04 está aguardando pagamento.";
+      defaultSound = "som_pix_gerado";
+    } else if (testType === "sale_pending") {
+      defaultTitle = "⏳ Venda pendente";
+      defaultMessage = "Boleto de R$ 151,04 impresso e aguardando pagamento.";
+      defaultSound = "som_venda_pendente";
+    } else if (testType === "refund") {
+      defaultTitle = "⚠️ Venda reembolsada";
+      defaultMessage = "Uma venda de R$ 151,04 foi reembolsada.";
+      defaultSound = "som_reembolso";
+    } else if (testType === "chargeback") {
+      defaultTitle = "🚨 Chargeback recebido";
+      defaultMessage = "Foi registrado um chargeback de R$ 151,04.";
+      defaultSound = "som_chargeback";
+    }
+
+    const customTitle = body.title || defaultTitle;
+    const customMessage = body.message || defaultMessage;
+    const sound = body.sound || defaultSound;
 
     // 1. Buscar dispositivos ativos registrados para este workspace / usuário
     const devices = await prisma.device.findMany({

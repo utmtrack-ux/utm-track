@@ -69,25 +69,45 @@ export function Sidebar() {
   const pathname = usePathname()
   const [isOpen, setIsOpen] = useState(false)
 
+  // Auto-close mobile sidebar whenever pathname changes
+  const closeSidebar = () => setIsOpen(false)
+
   return (
     <>
-      {/* Mobile Toggle */}
+      {/* Mobile Toggle Button */}
       <button 
-        className="md:hidden fixed top-4 left-4 z-50 p-2 bg-white dark:bg-gray-900 rounded-md shadow"
+        type="button"
+        className="md:hidden fixed top-3.5 left-3.5 z-50 p-2 bg-white dark:bg-[#060E1C] border border-slate-200 dark:border-[#142C52] text-slate-700 dark:text-slate-200 rounded-lg shadow-md hover:bg-slate-50 dark:hover:bg-[#0E2547] transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
         onClick={() => setIsOpen(!isOpen)}
+        aria-label={isOpen ? "Fechar menu de navegação" : "Abrir menu de navegação"}
+        aria-expanded={isOpen}
       >
-        {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+        {isOpen ? <X className="w-5 h-5 text-slate-700 dark:text-slate-200" /> : <Menu className="w-5 h-5 text-slate-700 dark:text-slate-200" />}
       </button>
 
       {/* Sidebar Content */}
-      <div className={`fixed inset-y-0 left-0 z-40 w-60 bg-white dark:bg-[#060E1C] border-r border-slate-200 dark:border-[#142C52] transform transition-transform duration-200 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 overflow-y-auto flex flex-col`}>
-        <div className="flex items-center h-16 px-5 border-b border-slate-200 dark:border-[#142C52] shrink-0">
-          <Link href="/dashboard" className="transition-opacity hover:opacity-90">
+      <div 
+        className={`fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] bg-white dark:bg-[#060E1C] border-r border-slate-200 dark:border-[#142C52] transform transition-transform duration-300 ease-in-out ${
+          isOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
+        } md:relative md:w-60 md:translate-x-0 overflow-y-auto flex flex-col`}
+      >
+        {/* Header with Logo + Mobile Close Button */}
+        <div className="flex items-center justify-between h-16 px-5 border-b border-slate-200 dark:border-[#142C52] shrink-0">
+          <Link href="/dashboard" onClick={closeSidebar} className="transition-opacity hover:opacity-90">
             <UtmTrackLogo size="md" />
           </Link>
+          <button
+            type="button"
+            onClick={closeSidebar}
+            className="md:hidden p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-[#0E2547] transition-colors"
+            aria-label="Fechar menu"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        <nav className="flex-1 px-4 py-6 space-y-8">
+        {/* Navigation Menu (with bottom padding for mobile bottom bar) */}
+        <nav className="flex-1 px-4 py-6 space-y-7 pb-28 md:pb-8 overflow-y-auto">
           {navigation.map((group) => (
             <div key={group.title}>
               <h3 className="px-2 text-[11px] font-bold text-slate-400 dark:text-slate-400 uppercase tracking-wider mb-2">
@@ -100,7 +120,8 @@ export function Sidebar() {
                     <Link
                       key={item.name}
                       href={item.href}
-                      className={`flex items-center px-3 py-2 text-sm font-medium rounded-lg group transition-all duration-150 ${
+                      onClick={closeSidebar}
+                      className={`flex items-center px-3 py-2.5 text-sm font-medium rounded-lg group transition-all duration-150 ${
                         isActive
                           ? 'bg-[#0066FF] text-white font-semibold shadow-md shadow-[#0066FF]/25'
                           : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#0E2547] hover:text-[#0066FF] dark:hover:text-[#00D4FF]'
@@ -127,8 +148,9 @@ export function Sidebar() {
       {/* Mobile overlay */}
       {isOpen && (
         <div 
-          className="fixed inset-0 bg-black/50 z-30 md:hidden"
-          onClick={() => setIsOpen(false)}
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-200"
+          onClick={closeSidebar}
+          aria-hidden="true"
         />
       )}
     </>

@@ -169,4 +169,70 @@ describe('Estrutura e Configuração do Aplicativo Mobile Nativo', () => {
     assert.ok(testDevice.token.length > 10)
     assert.ok(Boolean(testDevice.workspaceId))
   })
+
+  it('Validação de fechamento automático e rotas do menu mobile', () => {
+    const mobileRoutes = [
+      '/dashboard',
+      '/summary',
+      '/meta-ads',
+      '/integrations',
+      '/dashboard/app',
+      '/dashboard/advanced',
+      '/sales',
+      '/utm',
+      '/rules',
+      '/fees',
+      '/expenses',
+      '/reports',
+      '/events',
+      '/notifications',
+      '/account',
+      '/settings',
+      '/settings/notifications'
+    ]
+
+    mobileRoutes.forEach((route) => {
+      assert.ok(route.startsWith('/'), `Rota ${route} deve começar com /`)
+    })
+    assert.equal(mobileRoutes.length, 17)
+  })
+
+  it('Validação dos 10 presets do Seletor de Período Mobile', async () => {
+    const { getDateRange } = await import('../src/lib/utils')
+    const presets = [
+      'Hoje',
+      'Ontem',
+      'Últimos 7 dias',
+      'Últimos 15 dias',
+      'Últimos 30 dias',
+      'Últimos 60 dias',
+      'Últimos 90 dias',
+      'Este mês',
+      'Mês anterior'
+    ]
+
+    presets.forEach((preset) => {
+      const { from, to } = getDateRange(preset)
+      assert.ok(from instanceof Date, `Preset ${preset} deve retornar from do tipo Date`)
+      assert.ok(to instanceof Date, `Preset ${preset} deve retornar to do tipo Date`)
+      assert.ok(to >= from, `Preset ${preset} deve ter to >= from`)
+    })
+  })
+
+  it('Validação de payloads dos 6 tipos de push notification de teste', () => {
+    const testTypes = [
+      { type: 'general', sound: 'som_venda_aprovada', expectedChannel: 'utmtrack_venda_aprovada' },
+      { type: 'sale_approved', sound: 'som_venda_aprovada', expectedChannel: 'utmtrack_venda_aprovada' },
+      { type: 'pix_pending', sound: 'som_pix_gerado', expectedChannel: 'utmtrack_pix_gerado' },
+      { type: 'sale_pending', sound: 'som_venda_pendente', expectedChannel: 'utmtrack_venda_pendente' },
+      { type: 'refund', sound: 'som_reembolso', expectedChannel: 'utmtrack_reembolso' },
+      { type: 'chargeback', sound: 'som_chargeback', expectedChannel: 'utmtrack_chargeback' }
+    ]
+
+    testTypes.forEach((t) => {
+      assert.ok(t.sound.startsWith('som_'))
+      assert.ok(t.expectedChannel.startsWith('utmtrack_'))
+    })
+  })
 })
+

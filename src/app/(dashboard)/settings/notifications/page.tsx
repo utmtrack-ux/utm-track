@@ -444,34 +444,42 @@ export default function NotificationSettingsPage() {
 
 function PushTestSection() {
   const [isSending, setIsSending] = useState(false);
+  const [activeType, setActiveType] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<{ type: "success" | "warning" | "error"; text: string } | null>(null);
 
-  const handleSendTest = async () => {
+  const testOptions: Array<{ type: string; label: string; sound: SoundType; icon: string; bgHover: string; borderHover: string; color: string }> = [
+    { type: "general", label: "🔔 Geral", sound: "som_venda_aprovada", icon: "🔔", bgHover: "hover:bg-blue-50 dark:hover:bg-blue-950/40", borderHover: "hover:border-blue-500/50", color: "text-blue-500" },
+    { type: "sale_approved", label: "💰 Venda Aprovada", sound: "som_venda_aprovada", icon: "💰", bgHover: "hover:bg-emerald-50 dark:hover:bg-emerald-950/40", borderHover: "hover:border-emerald-500/50", color: "text-emerald-500" },
+    { type: "pix_pending", label: "⚡ Pix Gerado", sound: "som_pix_gerado", icon: "⚡", bgHover: "hover:bg-sky-50 dark:hover:bg-sky-950/40", borderHover: "hover:border-sky-500/50", color: "text-sky-500" },
+    { type: "sale_pending", label: "⏳ Venda Pendente", sound: "som_venda_pendente", icon: "⏳", bgHover: "hover:bg-amber-50 dark:hover:bg-amber-950/40", borderHover: "hover:border-amber-500/50", color: "text-amber-500" },
+    { type: "refund", label: "↩️ Reembolso", sound: "som_reembolso", icon: "↩️", bgHover: "hover:bg-orange-50 dark:hover:bg-orange-950/40", borderHover: "hover:border-orange-500/50", color: "text-orange-500" },
+    { type: "chargeback", label: "🚨 Chargeback", sound: "som_chargeback", icon: "🚨", bgHover: "hover:bg-red-50 dark:hover:bg-red-950/40", borderHover: "hover:border-red-500/50", color: "text-red-500" },
+  ];
+
+  const handleSendTest = async (type = "general", sound: SoundType = "som_venda_aprovada") => {
     setIsSending(true);
+    setActiveType(type);
     setStatusMsg(null);
     try {
       const res = await fetch("/api/notifications/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: "UTM-Track",
-          message: "Notificação de teste recebida com sucesso. Seu aplicativo está configurado corretamente.",
-          sound: "som_venda_aprovada",
-        }),
+        body: JSON.stringify({ type, sound }),
       });
       const data = await res.json();
 
       if (data.success) {
         setStatusMsg({
           type: "success",
-          text: data.message || "Notificação de teste enviada com sucesso para o seu dispositivo Android.",
+          text: data.message || `Push de ${type} enviado com sucesso para ${data.devicesCount} dispositivo(s).`,
         });
-        await playNotificationSound("som_venda_aprovada");
+        await playNotificationSound(sound);
       } else if (data.warning) {
         setStatusMsg({
           type: "warning",
-          text: data.message || "Nenhum dispositivo registrado. Abra o aplicativo UTM-Track no celular.",
+          text: data.message || "Nenhum dispositivo registrado no FCM. Abra o aplicativo UTM-Track no celular.",
         });
+        await playNotificationSound(sound);
       } else {
         setStatusMsg({
           type: "error",
@@ -485,38 +493,57 @@ function PushTestSection() {
       });
     } finally {
       setIsSending(false);
+      setActiveType(null);
     }
   };
 
   return (
     <div className="bg-white dark:bg-[#081A33] border border-slate-200 dark:border-[#142C52] rounded-2xl p-6 shadow-sm space-y-4">
-      <div className="flex items-center gap-2.5 border-b border-slate-100 dark:border-[#142C52] pb-3">
-        <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500">
-          <Bell className="w-4 h-4" />
-        </div>
-        <div>
-          <h2 className="text-sm font-bold text-gray-900 dark:text-white">
-            Testar Notificações Push
-          </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Envie uma notificação real para verificar se seu dispositivo está configurado corretamente.
-          </p>
+      <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#142C52] pb-3">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-500">
+            <Bell className="w-4 h-4" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-gray-900 dark:text-white">
+              Testar Notificações Push no Celular
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Envie um Push Notification real via FCM para verificar o recebimento, som e vibração no seu Android/iOS.
+            </p>
+          </div>
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1">
-        <p className="text-xs text-slate-600 dark:text-slate-300 max-w-md">
-          Dispara um Push Notification via FCM para o aplicativo UTM-Track instalado no seu celular, tocando o áudio proprietário e abrindo o aplicativo.
+      <div className="space-y-3 pt-1">
+        <p className="text-xs text-slate-600 dark:text-slate-300">
+          Selecione o tipo de evento para disparar o Push Notification correspondente:
         </p>
 
-        <button
-          onClick={handleSendTest}
-          disabled={isSending}
-          className="px-5 py-2.5 bg-[#0066FF] hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 shrink-0 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
-        >
-          <Bell className={`w-3.5 h-3.5 ${isSending ? "animate-bounce" : ""}`} />
-          {isSending ? "Enviando..." : "🔔 Enviar notificação de teste"}
-        </button>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+          {testOptions.map((opt) => {
+            const isLoadingThis = isSending && activeType === opt.type;
+            return (
+              <button
+                key={opt.type}
+                type="button"
+                onClick={() => handleSendTest(opt.type, opt.sound)}
+                disabled={isSending}
+                className={`p-3 rounded-xl border border-slate-200 dark:border-[#142C52] bg-slate-50/60 dark:bg-slate-900/60 text-left transition-all flex flex-col justify-between gap-1.5 ${opt.bgHover} ${opt.borderHover} disabled:opacity-50`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm">{opt.icon}</span>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500">
+                    {opt.sound.replace('som_', '')}
+                  </span>
+                </div>
+                <div className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                  {isLoadingThis ? "Enviando Push..." : opt.label}
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {statusMsg && (
