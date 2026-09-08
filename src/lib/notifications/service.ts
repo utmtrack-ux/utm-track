@@ -92,22 +92,48 @@ export async function createSaleNotification(params: CreateSaleNotificationParam
       break;
   }
 
-  // 3. Checagem das preferências do workspace/usuário
+  // 3. Checagem das preferências e sons personalizados do workspace/usuário
   let shouldSendPush = true;
-  if (userId) {
-    const pref = await prisma.notificationPreference.findUnique({
-      where: { workspaceId_userId: { workspaceId, userId } },
+  let useCustomSounds = false;
+
+  const pref = userId
+    ? await prisma.notificationPreference.findUnique({
+        where: { workspaceId_userId: { workspaceId, userId } },
+      })
+    : await prisma.notificationPreference.findFirst({
+        where: { workspaceId },
+      });
+
+  if (pref) {
+    if (type === "sale_approved" && !pref.salesApproved) shouldSendPush = false;
+    if (type === "pix_pending" && !pref.pixGenerated) shouldSendPush = false;
+    if (type === "sale_pending" && !pref.salesPending) shouldSendPush = false;
+    if (type === "refund" && !pref.refunds) shouldSendPush = false;
+    if (type === "chargeback" && !pref.chargebacks) shouldSendPush = false;
+    useCustomSounds = !!pref.useCustomSounds;
+  }
+
+  // 4. Verificação de som personalizado configurado
+  let customSoundRecord = null;
+  let customSoundUrl: string | null = null;
+  let customSoundName: string | null = null;
+
+  if (useCustomSounds) {
+    customSoundRecord = await prisma.notificationSound.findFirst({
+      where: {
+        workspaceId,
+        notificationType: type,
+        isActive: true,
+      },
     });
-    if (pref) {
-      if (type === "sale_approved" && !pref.salesApproved) shouldSendPush = false;
-      if (type === "pix_pending" && !pref.pixGenerated) shouldSendPush = false;
-      if (type === "sale_pending" && !pref.salesPending) shouldSendPush = false;
-      if (type === "refund" && !pref.refunds) shouldSendPush = false;
-      if (type === "chargeback" && !pref.chargebacks) shouldSendPush = false;
+
+    if (customSoundRecord) {
+      customSoundUrl = customSoundRecord.fileUrl;
+      customSoundName = customSoundRecord.originalFileName;
     }
   }
 
-  // 4. Criação do registro no banco
+  // 5. Criação do registro no banco
   const deepLink = saleId ? `/sales/${saleId}` : `/notifications`;
 
   const notification = await prisma.notification.create({
@@ -125,19 +151,23 @@ export async function createSaleNotification(params: CreateSaleNotificationParam
       saleId,
       orderId,
       transactionId,
-      sound,
+      sound: customSoundName || sound,
       pushStatus: shouldSendPush ? "sent" : "skipped",
       idempotencyKey,
       metadata: JSON.stringify({
         source: "sales_engine",
-        soundFile: `/sounds/${sound}.wav`,
+        soundFile: customSoundUrl || `/sounds/${sound}.wav`,
+        isCustomSound: !!customSoundRecord,
+        customSoundId: customSoundRecord?.id,
+        customSoundName: customSoundRecord?.originalFileName,
+        customSoundUrl: customSoundUrl,
         deepLink,
         timestamp: new Date().toISOString(),
       }),
     },
   });
 
-  // 5. Despacho real para dispositivos móveis registrados (Android e iOS)
+  // 6. Despacho real para dispositivos móveis registrados (Android e iOS)
   let pushResult = {
     totalTargeted: 0,
     successCount: 0,
@@ -154,6 +184,8 @@ export async function createSaleNotification(params: CreateSaleNotificationParam
       title,
       body: message,
       sound,
+      customSoundUrl: customSoundUrl || undefined,
+      customSoundName: customSoundName || undefined,
       saleId,
       orderId,
       amount,
@@ -166,7 +198,8 @@ export async function createSaleNotification(params: CreateSaleNotificationParam
     notification,
     dispatched: shouldSendPush,
     devicesTargeted: pushResult.totalTargeted,
-    sound,
+    sound: customSoundName || sound,
+    isCustomSound: !!customSoundRecord,
     pushResult,
   };
 }

@@ -10,7 +10,7 @@ export type SoundType =
   | "refund"
   | "chargeback";
 
-const SOUND_MAP: Record<string, string> = {
+export const SOUND_MAP: Record<string, string> = {
   som_venda_aprovada: "/sounds/som_venda_aprovada.wav",
   sale_approved: "/sounds/som_venda_aprovada.wav",
   som_pix_gerado: "/sounds/som_pix_gerado.wav",
@@ -23,7 +23,7 @@ const SOUND_MAP: Record<string, string> = {
   chargeback: "/sounds/som_chargeback.wav",
 };
 
-const VIBRATION_PATTERNS: Record<string, number[]> = {
+export const VIBRATION_PATTERNS: Record<string, number[]> = {
   som_venda_aprovada: [100, 50, 150, 50, 200], // Triunfo
   sale_approved: [100, 50, 150, 50, 200],
   som_pix_gerado: [100, 50, 100], // Espera
@@ -36,6 +36,7 @@ const VIBRATION_PATTERNS: Record<string, number[]> = {
   chargeback: [300, 100, 300],
 };
 
+let currentPlayingAudio: HTMLAudioElement | null = null;
 const audioCache = new Map<string, HTMLAudioElement>();
 
 export function isSoundEnabled(): boolean {
@@ -60,23 +61,59 @@ export function setVibrationEnabled(enabled: boolean): void {
   localStorage.setItem("utmt_vibration_enabled", enabled ? "true" : "false");
 }
 
-export async function playNotificationSound(type: SoundType): Promise<void> {
+export function isCustomSoundsEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  const stored = localStorage.getItem("utmt_custom_sounds_enabled");
+  return stored === "true";
+}
+
+export function setCustomSoundsEnabled(enabled: boolean): void {
   if (typeof window === "undefined") return;
+  localStorage.setItem("utmt_custom_sounds_enabled", enabled ? "true" : "false");
+}
 
-  const soundPath = SOUND_MAP[type] || SOUND_MAP.som_venda_aprovada;
+/**
+ * Stop any active notification sound playback.
+ */
+export function stopCurrentSound(): void {
+  if (currentPlayingAudio) {
+    try {
+      currentPlayingAudio.pause();
+      currentPlayingAudio.currentTime = 0;
+    } catch {
+      // ignore
+    }
+    currentPlayingAudio = null;
+  }
+}
 
-  // 1. Vibração háptica quando suportada e ativada
+/**
+ * Play a notification sound (built-in or custom audio URL).
+ * Automatically stops overlapping sounds and respects user preferences.
+ */
+export async function playNotificationSound(
+  typeOrUrl: SoundType | string,
+  customAudioUrl?: string
+): Promise<HTMLAudioElement | null> {
+  if (typeof window === "undefined") return null;
+
+  // Parar reprodução ativa anterior para evitar sobreposição
+  stopCurrentSound();
+
+  const soundPath = customAudioUrl || SOUND_MAP[typeOrUrl] || typeOrUrl;
+
+  // 1. Vibração háptica
   if (isVibrationEnabled() && typeof navigator !== "undefined" && "vibrate" in navigator) {
     try {
-      const pattern = VIBRATION_PATTERNS[type] || [100];
+      const pattern = VIBRATION_PATTERNS[typeOrUrl] || [100, 50, 150];
       navigator.vibrate(pattern);
     } catch {
       // Ignore vibration error on unsupported platforms
     }
   }
 
-  // 2. Reprodução de áudio quando ativado
-  if (!isSoundEnabled()) return;
+  // 2. Reprodução de áudio
+  if (!isSoundEnabled()) return null;
 
   try {
     let audio = audioCache.get(soundPath);
@@ -88,9 +125,18 @@ export async function playNotificationSound(type: SoundType): Promise<void> {
 
     audio.currentTime = 0;
     audio.volume = 1.0;
+    currentPlayingAudio = audio;
+
+    audio.onended = () => {
+      if (currentPlayingAudio === audio) {
+        currentPlayingAudio = null;
+      }
+    };
+
     await audio.play();
+    return audio;
   } catch (err) {
-    // Autoplay policy may block audio until user interaction
     console.warn("Audio playback prevented or failed:", err);
+    return null;
   }
 }

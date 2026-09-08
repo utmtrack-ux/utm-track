@@ -74,7 +74,28 @@ export async function POST(req: Request) {
 
     const customTitle = body.title || defaultTitle;
     const customMessage = body.message || defaultMessage;
-    const sound = body.sound || defaultSound;
+    let sound = body.sound || defaultSound;
+    let customSoundUrl = body.customSoundUrl || null;
+    let customSoundName = body.customSoundName || null;
+    let isCustomSound = false;
+
+    // Verificar se há som personalizado ativo para este tipo
+    if (testType !== "general") {
+      const customSoundRecord = await prisma.notificationSound.findFirst({
+        where: {
+          workspaceId,
+          notificationType: testType,
+          isActive: true,
+        },
+      });
+
+      if (customSoundRecord) {
+        customSoundUrl = customSoundRecord.fileUrl;
+        customSoundName = customSoundRecord.originalFileName;
+        sound = customSoundRecord.originalFileName;
+        isCustomSound = true;
+      }
+    }
 
     // 1. Buscar dispositivos ativos registrados para este workspace / usuário
     const devices = await prisma.device.findMany({
@@ -101,7 +122,10 @@ export async function POST(req: Request) {
         idempotencyKey: `push_test_${session.user.id}_${Date.now()}`,
         metadata: JSON.stringify({
           source: "push_test_engine",
-          soundFile: `/sounds/${sound}.wav`,
+          soundFile: customSoundUrl || `/sounds/${sound}.wav`,
+          isCustomSound,
+          customSoundName,
+          customSoundUrl,
           deepLink: "/notifications",
           devicesTargeted: devices.length,
           timestamp: new Date().toISOString(),
@@ -120,6 +144,9 @@ export async function POST(req: Request) {
           id: notification.id,
           title: notification.title,
           message: notification.message,
+          sound,
+          customSoundUrl,
+          isCustomSound,
           createdAt: notification.createdAt,
         },
       });
@@ -132,7 +159,9 @@ export async function POST(req: Request) {
       type: "push_test",
       title: customTitle,
       body: customMessage,
-      sound,
+      sound: defaultSound, // Som base / canal
+      customSoundUrl: customSoundUrl || undefined,
+      customSoundName: customSoundName || undefined,
     });
 
     return NextResponse.json({

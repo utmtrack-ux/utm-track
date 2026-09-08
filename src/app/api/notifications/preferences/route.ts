@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getOrCreatePreferences } from "@/lib/notifications/service";
@@ -47,6 +47,7 @@ export async function PUT(req: Request) {
       integrationErrors,
       soundEnabled,
       vibrationEnabled,
+      useCustomSounds,
     } = body;
 
     const updated = await prisma.notificationPreference.upsert({
@@ -68,6 +69,7 @@ export async function PUT(req: Request) {
         integrationErrors: integrationErrors ?? true,
         soundEnabled: soundEnabled ?? true,
         vibrationEnabled: vibrationEnabled ?? true,
+        useCustomSounds: useCustomSounds ?? false,
       },
       update: {
         salesApproved,
@@ -79,6 +81,7 @@ export async function PUT(req: Request) {
         integrationErrors,
         soundEnabled,
         vibrationEnabled,
+        useCustomSounds,
         updatedAt: new Date(),
       },
     });

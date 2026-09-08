@@ -7,6 +7,8 @@ export interface PushPayload {
   title: string;
   body: string;
   sound: string;
+  customSoundUrl?: string;
+  customSoundName?: string;
   saleId?: string;
   orderId?: string;
   amount?: number;
@@ -28,7 +30,19 @@ export interface PushDispatchResult {
  * Automatically deactivates invalid/expired tokens (token pruning).
  */
 export async function dispatchPushToDevices(payload: PushPayload): Promise<PushDispatchResult> {
-  const { workspaceId, title, body, sound, saleId, orderId, amount, currency, notificationId } = payload;
+  const {
+    workspaceId,
+    title,
+    body,
+    sound,
+    customSoundUrl,
+    customSoundName,
+    saleId,
+    orderId,
+    amount,
+    currency,
+    notificationId,
+  } = payload;
 
   const devices = await prisma.device.findMany({
     where: { workspaceId, isActive: true },
@@ -85,6 +99,9 @@ export async function dispatchPushToDevices(payload: PushPayload): Promise<PushD
               amount: String(amount || 0),
               currency: currency || "BRL",
               sound,
+              customSoundUrl: customSoundUrl || "",
+              customSoundName: customSoundName || "",
+              isCustomSound: customSoundUrl ? "true" : "false",
               channelId,
               deepLink,
               click_action: deepLink,

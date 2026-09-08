@@ -34,6 +34,7 @@ model User {
   memberships   WorkspaceMember[]
   devices       Device[]
   notificationPreferences NotificationPreference[]
+  notificationSounds      NotificationSound[]
 }
 
 model Account {
@@ -99,6 +100,7 @@ model Workspace {
   notifications   Notification[]
   devices         Device[]
   notificationPreferences NotificationPreference[]
+  notificationSounds      NotificationSound[]
   syncLogs        SyncLog[]
   auditLogs       AuditLog[]
   reports         Report[]
@@ -757,6 +759,7 @@ model NotificationPreference {
   integrationErrors Boolean  @default(true)
   soundEnabled      Boolean  @default(true)
   vibrationEnabled  Boolean  @default(true)
+  useCustomSounds   Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -764,6 +767,30 @@ model NotificationPreference {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, userId])
+}
+
+model NotificationSound {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  userId           String?
+  notificationType String   // sale_approved, pix_pending, sale_pending, refund, chargeback
+  originalFileName String
+  storagePath      String
+  fileUrl          String
+  mimeType         String
+  fileSize         Int
+  duration         Float?
+  status           String   @default("ACTIVE") // ACTIVE, INACTIVE, PENDING_BUILD
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, notificationType])
+  @@index([workspaceId, isActive])
+  @@index([workspaceId, notificationType])
 }
 
 // ============================================================

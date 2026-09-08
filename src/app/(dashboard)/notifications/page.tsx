@@ -230,12 +230,19 @@ export default function NotificationsPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Link
+            href="/settings/notifications"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[#0066FF]/10 text-[#0066FF] border border-[#0066FF]/30 rounded-lg hover:bg-[#0066FF]/20 transition"
+          >
+            <Volume2 className="w-3.5 h-3.5" />
+            Personalizar Sons
+          </Link>
           <button
             onClick={() => setShowConfig(!showConfig)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
           >
             <Settings2 className="w-4 h-4 text-sky-500" />
-            Configurações
+            Preferências
           </button>
           {notifications.length > 0 && (
             <>
