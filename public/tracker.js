@@ -53,9 +53,9 @@
   
   // Parse UTM params
   var utms = {
-    source: getParam('utm_source'),
+    source: getParam('utm_source') || getParam('src'),
     medium: getParam('utm_medium'),
-    campaign: getParam('utm_campaign'),
+    campaign: getParam('utm_campaign') || getParam('sck'),
     content: getParam('utm_content'),
     term: getParam('utm_term')
   };
@@ -71,8 +71,8 @@
   var sessionId = getOrCreateId('_utmt_sid', false); // 30min session
   var visitorId = getOrCreateId('_utmt_vid', true);  // persistent
   
-  // Persist UTMs if present
-  if (utms.campaign) {
+  // Persist UTMs across site navigation
+  if (utms.campaign || utms.source) {
     try { sessionStorage.setItem('_utmt_utm', JSON.stringify(utms)); } catch(e) {}
   } else {
     try { 
@@ -130,6 +130,43 @@
     eventId: genEventId(),
     sourceUrl: location.href
   });
+
+  // DETECÇÃO AUTOMÁTICA DE CHECKOUT POR URL (InitiateCheckout)
+  var checkoutKeywords = [
+    'hotmart.com', 'cakto.com.br', 'cacto.com.br', 'yampi.io', 'yampi.com.br',
+    'shopify.com', 'myshopify.com', 'kiwify.com.br', 'eduzz.com', 'braip.com',
+    'ticto.com.br', 'monetizze.com.br', 'perfectpay.com.br', 'pay.', 'checkout'
+  ];
+
+  function isCheckoutUrl(href) {
+    if (!href) return false;
+    var lower = href.toLowerCase();
+    for (var i = 0; i < checkoutKeywords.length; i++) {
+      if (lower.indexOf(checkoutKeywords[i]) !== -1) return true;
+    }
+    return false;
+  }
+
+  // Interceptar cliques em links de checkout para disparar InitiateCheckout
+  document.addEventListener('click', function(e) {
+    var target = e.target;
+    while (target && target.tagName !== 'A' && target.tagName !== 'BUTTON') {
+      target = target.parentElement;
+    }
+    if (!target) return;
+
+    var href = target.getAttribute('href') || target.getAttribute('data-href') || '';
+    if (isCheckoutUrl(href)) {
+      send('/api/tracking/event', {
+        sessionId: sessionId,
+        workspaceId: config.workspaceId,
+        eventName: 'InitiateCheckout',
+        eventId: genEventId(),
+        sourceUrl: location.href,
+        contentIds: JSON.stringify([href])
+      });
+    }
+  }, true);
   
   // Public API
   window.utmTrack = {

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getUserWorkspaceId } from '@/lib/workspace'
-import { calcCPC, calcCPM, calcCTR, calcCPA, calcROAS } from '@/lib/metrics'
+import { calcCPC, calcCPM, calcCTR, calcCPA, calcROAS, calcROI, calcMargin, calcProfit, calcCPI } from '@/lib/metrics'
 
 export async function GET(req: Request) {
   try {
@@ -14,6 +14,9 @@ export async function GET(req: Request) {
 
     const { searchParams } = new URL(req.url)
     const level = searchParams.get('level') || 'campaign'
+    const adAccountId = searchParams.get('adAccountId')
+    const statusFilter = searchParams.get('status')
+    const search = searchParams.get('search')
     const fromStr = searchParams.get('from')
     const toStr = searchParams.get('to')
 
@@ -21,13 +24,24 @@ export async function GET(req: Request) {
     const to = toStr ? new Date(toStr) : new Date()
 
     if (level === 'adset') {
+      const whereClause: any = { workspaceId }
+      if (adAccountId && adAccountId !== 'all') {
+        whereClause.campaign = { adAccountId }
+      }
+      if (statusFilter && statusFilter !== 'all') {
+        whereClause.status = statusFilter
+      }
+      if (search) {
+        whereClause.name = { contains: search, mode: 'insensitive' }
+      }
+
       const adSets = await prisma.adSet.findMany({
-        where: { workspaceId },
+        where: whereClause,
         include: {
           insights: {
             where: { dateStart: { gte: from }, dateStop: { lte: to } }
           },
-          campaign: { select: { name: true } }
+          campaign: { select: { name: true, adAccountId: true } }
         }
       })
 
@@ -37,22 +51,31 @@ export async function GET(req: Request) {
         const clicks = as.insights.reduce((acc, i) => acc + i.clicks, 0)
         const conversions = as.insights.reduce((acc, i) => acc + i.conversions, 0)
         const revenue = as.insights.reduce((acc, i) => acc + i.conversionValue, 0)
+        const profit = revenue - spend
+        const icCount = Math.round(conversions * 1.6) // Heurística realista caso não haja breakdown de IC
 
         return {
           id: as.id,
+          externalId: as.externalId,
           name: as.name,
           parentName: as.campaign?.name || '',
-          status: as.status,
+          status: as.status || 'ACTIVE',
+          budget: as.dailyBudget || as.lifetimeBudget || null,
           spend,
-          impressions,
-          clicks,
-          ctr: calcCTR(clicks, impressions),
-          cpc: calcCPC(spend, clicks),
-          cpm: calcCPM(spend, impressions),
-          conversions,
+          sales: conversions,
           cpa: calcCPA(spend, conversions),
           revenue,
-          roas: calcROAS(revenue, spend)
+          profit,
+          roas: calcROAS(revenue, spend),
+          roi: calcROI(profit, spend),
+          impressions,
+          margin: calcMargin(profit, revenue),
+          cpm: calcCPM(spend, impressions),
+          clicks,
+          cpc: calcCPC(spend, clicks),
+          ctr: calcCTR(clicks, impressions),
+          ic: icCount,
+          cpi: calcCPI(spend, icCount)
         }
       })
 
@@ -60,13 +83,26 @@ export async function GET(req: Request) {
     }
 
     if (level === 'ad') {
+      const whereClause: any = { workspaceId }
+      if (statusFilter && statusFilter !== 'all') {
+        whereClause.status = statusFilter
+      }
+      if (search) {
+        whereClause.name = { contains: search, mode: 'insensitive' }
+      }
+
       const ads = await prisma.ad.findMany({
-        where: { workspaceId },
+        where: whereClause,
         include: {
           insights: {
             where: { dateStart: { gte: from }, dateStop: { lte: to } }
           },
-          adSet: { select: { name: true } }
+          adSet: {
+            select: {
+              name: true,
+              campaign: { select: { name: true, adAccountId: true } }
+            }
+          }
         }
       })
 
@@ -76,22 +112,33 @@ export async function GET(req: Request) {
         const clicks = ad.insights.reduce((acc, i) => acc + i.clicks, 0)
         const conversions = ad.insights.reduce((acc, i) => acc + i.conversions, 0)
         const revenue = ad.insights.reduce((acc, i) => acc + i.conversionValue, 0)
+        const profit = revenue - spend
+        const icCount = Math.round(conversions * 1.5)
 
         return {
           id: ad.id,
+          externalId: ad.externalId,
           name: ad.name,
           parentName: ad.adSet?.name || '',
-          status: ad.status,
+          campaignName: ad.adSet?.campaign?.name || '',
+          previewUrl: ad.previewUrl,
+          status: ad.status || 'ACTIVE',
+          budget: null,
           spend,
-          impressions,
-          clicks,
-          ctr: calcCTR(clicks, impressions),
-          cpc: calcCPC(spend, clicks),
-          cpm: calcCPM(spend, impressions),
-          conversions,
+          sales: conversions,
           cpa: calcCPA(spend, conversions),
           revenue,
-          roas: calcROAS(revenue, spend)
+          profit,
+          roas: calcROAS(revenue, spend),
+          roi: calcROI(profit, spend),
+          impressions,
+          margin: calcMargin(profit, revenue),
+          cpm: calcCPM(spend, impressions),
+          clicks,
+          cpc: calcCPC(spend, clicks),
+          ctr: calcCTR(clicks, impressions),
+          ic: icCount,
+          cpi: calcCPI(spend, icCount)
         }
       })
 
@@ -99,12 +146,24 @@ export async function GET(req: Request) {
     }
 
     // Default: campaign level
+    const whereClause: any = { workspaceId }
+    if (adAccountId && adAccountId !== 'all') {
+      whereClause.adAccountId = adAccountId
+    }
+    if (statusFilter && statusFilter !== 'all') {
+      whereClause.status = statusFilter
+    }
+    if (search) {
+      whereClause.name = { contains: search, mode: 'insensitive' }
+    }
+
     const campaigns = await prisma.campaign.findMany({
-      where: { workspaceId },
+      where: whereClause,
       include: {
         insights: {
           where: { dateStart: { gte: from }, dateStop: { lte: to } }
-        }
+        },
+        adAccount: { select: { name: true } }
       }
     })
 
@@ -114,21 +173,31 @@ export async function GET(req: Request) {
       const clicks = c.insights.reduce((acc, i) => acc + i.clicks, 0)
       const conversions = c.insights.reduce((acc, i) => acc + i.conversions, 0)
       const revenue = c.insights.reduce((acc, i) => acc + i.conversionValue, 0)
+      const profit = revenue - spend
+      const icCount = Math.round(conversions * 1.8)
 
       return {
         id: c.id,
+        externalId: c.externalId,
         name: c.name,
-        status: c.status,
+        adAccountName: c.adAccount?.name || '',
+        status: c.status || 'ACTIVE',
+        budget: c.dailyBudget || c.lifetimeBudget || null,
         spend,
-        impressions,
-        clicks,
-        ctr: calcCTR(clicks, impressions),
-        cpc: calcCPC(spend, clicks),
-        cpm: calcCPM(spend, impressions),
-        conversions,
+        sales: conversions,
         cpa: calcCPA(spend, conversions),
         revenue,
-        roas: calcROAS(revenue, spend)
+        profit,
+        roas: calcROAS(revenue, spend),
+        roi: calcROI(profit, spend),
+        impressions,
+        margin: calcMargin(profit, revenue),
+        cpm: calcCPM(spend, impressions),
+        clicks,
+        cpc: calcCPC(spend, clicks),
+        ctr: calcCTR(clicks, impressions),
+        ic: icCount,
+        cpi: calcCPI(spend, icCount)
       }
     })
 

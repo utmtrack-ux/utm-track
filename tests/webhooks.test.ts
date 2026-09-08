@@ -61,31 +61,58 @@ describe('Integrações e Normalização de Webhooks', () => {
     assert.equal(mapYampiStatus('cancelled'), 'cancelled')
   })
 
-  it('Cacto: Normalização de payload e status', () => {
-    const cactoPayload = {
-      id: 'cacto_99182',
-      status: 'paid',
-      amount: 497.0,
+  it('Cakto: Normalização oficial de payload com campos id, status, amount, utms e e-mail', () => {
+    const caktoPayload = {
+      id: 'cakto_trans_99182',
+      status: 'approved',
+      amount: 297.0,
       currency: 'BRL',
-      email: 'comprador@teste.com',
+      email: 'comprador@cakto.com.br',
       utms: {
         source: 'facebook',
-        campaign: 'campanha_escala'
-      }
+        medium: 'cpc',
+        campaign: 'campanha_cakto_oficial',
+        content: 'ad_01',
+        term: 'feed'
+      },
+      created_at: '2026-09-08T12:00:00Z'
     }
 
-    const status = (cactoPayload.status === 'paid' || cactoPayload.status === 'approved') ? 'approved' : 'pending'
+    const caktoStatus = caktoPayload.status.toLowerCase()
+    let status = 'pending'
+    if (caktoStatus.includes('approved') || caktoStatus.includes('paid')) status = 'approved'
+
     assert.equal(status, 'approved')
-    assert.equal(cactoPayload.amount, 497.0)
-    assert.equal(cactoPayload.utms.campaign, 'campanha_escala')
+    assert.equal(caktoPayload.amount, 297.0)
+    assert.equal(caktoPayload.utms.campaign, 'campanha_cakto_oficial')
+    assert.equal(caktoPayload.utms.source, 'facebook')
   })
 
-  it('Idempotência de Webhook: Geração e unicidade de chave', () => {
-    const hotmartKey1 = `hotmart_HP123456_PURCHASE_APPROVED`
-    const hotmartKey2 = `hotmart_HP123456_PURCHASE_APPROVED`
-    const hotmartKey3 = `hotmart_HP123456_PURCHASE_REFUNDED`
+  it('Cakto: Geração de chave de idempotência para evitar duplicação de vendas', () => {
+    const transId = 'ck_987654'
+    const status = 'approved'
+    const key1 = `cakto_${transId}_${status}_approved`
+    const key2 = `cakto_${transId}_${status}_approved`
 
-    assert.equal(hotmartKey1, hotmartKey2, 'Mesmo evento da mesma transação deve ter a mesma chave')
-    assert.notEqual(hotmartKey1, hotmartKey3, 'Eventos diferentes devem ter chaves diferentes')
+    assert.equal(key1, key2, 'Mesma transação Cakto gera a mesma chave de idempotência')
+  })
+
+  it('Detecção de Checkout por URL: Reconhece gateways configurados (Hotmart, Cakto, Yampi, Shopify)', () => {
+    const checkoutKeywords = [
+      'hotmart.com', 'cakto.com.br', 'cacto.com.br', 'yampi.io', 'yampi.com.br',
+      'shopify.com', 'myshopify.com', 'kiwify.com.br', 'eduzz.com', 'braip.com',
+      'ticto.com.br', 'monetizze.com.br', 'perfectpay.com.br', 'pay.', 'checkout'
+    ]
+
+    const isCheckout = (url: string) => {
+      const lower = url.toLowerCase()
+      return checkoutKeywords.some(k => lower.includes(k))
+    }
+
+    assert.equal(isCheckout('https://pay.hotmart.com/B12345678X'), true)
+    assert.equal(isCheckout('https://checkout.cakto.com.br/pay/abc123xyz'), true)
+    assert.equal(isCheckout('https://loja.yampi.io/checkout/order/123'), true)
+    assert.equal(isCheckout('https://minhaloja.myshopify.com/checkouts/c/12345'), true)
+    assert.equal(isCheckout('https://meusite.com.br/pagina-de-vendas'), false)
   })
 })

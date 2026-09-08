@@ -3,84 +3,95 @@
 import { useState, useEffect, Suspense } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, useRouter } from "next/navigation";
-import { PeriodSelector } from "@/components/dashboard/period-selector";
-import { CampaignsTable } from "@/components/meta-ads/campaigns-table";
 import {
+  TrendingUp,
   RefreshCw,
   Plus,
   Trash2,
+  ExternalLink,
   CheckCircle2,
   AlertTriangle,
-  TrendingUp,
+  Layers,
+  BarChart2,
+  Sliders,
+  DollarSign,
+  Sparkles,
+  Link as LinkIcon,
   CheckSquare,
   Square,
-  ShieldCheck,
-  Layers,
-  Sparkles,
+  ShieldAlert,
 } from "lucide-react";
 import Link from "next/link";
-import { getDateRange, formatDate } from "@/lib/utils";
+import { PeriodSelector } from "@/components/dashboard/period-selector";
+import { getDateRange, formatCurrency, formatDate, formatNumber } from "@/lib/utils";
+import { CampaignsTable, MetaTableLevel } from "@/components/meta-ads/campaigns-table";
 
-type AdAccountItem = {
+type AdAccount = {
   id: string;
   name: string;
   externalId: string;
-  status: string;
   currency: string;
   timezone: string;
+  status: string;
   lastSyncAt: string | null;
+  createdAt: string;
 };
 
 function MetaAdsContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
+
   const [activeTab, setActiveTab] = useState<"Contas" | "Campanhas" | "Conjuntos" | "Anúncios">("Contas");
   const [period, setPeriod] = useState({
     preset: "Últimos 30 dias",
     ...getDateRange("last30days"),
   });
+
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [isSelectModalOpen, setIsSelectModalOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [manualAccount, setManualAccount] = useState({ name: "", externalId: "", accessToken: "" });
-  
-  // Sincronização em etapas com progresso visual
-  const [syncStep, setSyncStep] = useState<number>(0);
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
-  const [syncDetail, setSyncDetail] = useState<{ campaigns?: number; adSets?: number; ads?: number; insights?: number } | null>(null);
+  const [selectedAdAccount, setSelectedAdAccount] = useState("all");
 
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const queryClient = useQueryClient();
-
-  const { data: accountsData, isLoading: loadingAccounts, refetch: refetchAccounts } = useQuery<{
-    accounts: AdAccountItem[];
-  }>({
-    queryKey: ["meta-accounts"],
-    queryFn: () => fetch("/api/meta/accounts").then((r) => r.json()),
+  const [manualAccount, setManualAccount] = useState({
+    name: "",
+    externalId: "",
+    accessToken: "",
   });
 
-  const accounts = accountsData?.accounts || [];
-  const needsReconnect = accounts.some((a) => a.status === "reconnect_required" || a.status === "error");
+  // Notificações e Progresso de Sincronização
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [syncStep, setSyncStep] = useState<number>(0);
+  const [syncDetail, setSyncDetail] = useState<{
+    campaigns?: number;
+    adSets?: number;
+    ads?: number;
+    insights?: number;
+  } | null>(null);
 
-  // Detectar retorno do OAuth e abrir seleção de contas
+  // Busca contas vinculadas no banco
+  const { data: accountsData, isLoading: loadingAccounts } = useQuery({
+    queryKey: ["meta-accounts"],
+    queryFn: async () => {
+      const res = await fetch("/api/meta/accounts");
+      if (!res.ok) throw new Error("Erro ao carregar contas");
+      return res.json();
+    },
+  });
+
+  const accounts: AdAccount[] = accountsData?.accounts || [];
+  const needsReconnect = accounts.some((a) => a.status === "reconnect_required");
+
+  // Verificar se o usuário acabou de voltar do OAuth
   useEffect(() => {
-    const statusParam = searchParams.get("status");
-    const selectParam = searchParams.get("select_accounts");
-    const errorParam = searchParams.get("error");
-
-    if (errorParam) {
-      setSyncMessage(`Erro retornado pela Meta: ${decodeURIComponent(errorParam)}`);
-    } else if (statusParam === "oauth_success" || selectParam === "true") {
+    if (searchParams.get("connected") === "true") {
       setIsSelectModalOpen(true);
-      // Pré-selecionar todas as contas ativas
-      if (accounts.length > 0) {
-        setSelectedIds(accounts.map((a) => a.id));
-      }
     }
-  }, [searchParams, accounts.length]);
+  }, [searchParams]);
 
   useEffect(() => {
     if (accounts.length > 0 && selectedIds.length === 0) {
-      setSelectedIds(accounts.filter((a) => a.status === "active").map((a) => a.id));
+      setSelectedIds(accounts.map((a) => a.id));
     }
   }, [accounts]);
 
@@ -89,22 +100,22 @@ function MetaAdsContent() {
     mutationFn: async (accountId?: string) => {
       setSyncStep(1);
       setSyncMessage("1/5: Conectando com a Meta Graph API v21.0...");
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 400));
 
       setSyncStep(2);
       setSyncMessage("2/5: Sincronizando campanhas ativas...");
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 400));
 
       setSyncStep(3);
       setSyncMessage("3/5: Sincronizando conjuntos de anúncios e orçamentos...");
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 400));
 
       setSyncStep(4);
       setSyncMessage("4/5: Sincronizando criativos e anúncios...");
-      await new Promise((r) => setTimeout(r, 600));
+      await new Promise((r) => setTimeout(r, 400));
 
       setSyncStep(5);
-      setSyncMessage("5/5: Importando métricas diárias e dados de conversão (Insights)...");
+      setSyncMessage("5/5: Importando métricas diárias e conversões (Insights)...");
 
       const res = await fetch("/api/meta/sync", {
         method: "POST",
@@ -127,21 +138,15 @@ function MetaAdsContent() {
           ads: first.ads,
           insights: first.insights,
         });
-      } else if (data?.campaigns !== undefined) {
-        setSyncDetail({
-          campaigns: data.campaigns,
-          adSets: data.adSets,
-          ads: data.ads,
-          insights: data.insights,
-        });
       }
-      queryClient.invalidateQueries({ queryKey: ["meta-insights"] });
+      queryClient.invalidateQueries({ queryKey: ["meta-insights-table"] });
       queryClient.invalidateQueries({ queryKey: ["meta-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["summary-consolidated"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       setTimeout(() => {
         setSyncStep(0);
         setSyncMessage(null);
-      }, 6000);
+      }, 5000);
     },
     onError: (err: Error) => {
       setSyncStep(0);
@@ -165,12 +170,11 @@ function MetaAdsContent() {
       return data;
     },
     onSuccess: () => {
-      // Close modal immediately — selection was saved
       setIsSelectModalOpen(false);
       queryClient.invalidateQueries({ queryKey: ["meta-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["summary-consolidated"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       router.replace("/meta-ads");
-      // Trigger sync separately — does not block the modal
       syncMutation.mutate();
     },
     onError: (err: Error) => {
@@ -226,7 +230,7 @@ function MetaAdsContent() {
   ];
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* Alerta de Reconexão Necessária */}
       {needsReconnect && (
         <div className="p-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl flex items-center justify-between gap-4">
@@ -250,33 +254,38 @@ function MetaAdsContent() {
         </div>
       )}
 
-      {/* Header com Ações */}
+      {/* Header com Título, Período e Botões de Ação */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Gerenciamento Meta Ads</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Conexão com a Meta Graph API v21.0, importação de contas, campanhas e métricas reais
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <TrendingUp className="w-6 h-6 text-blue-600" />
+            Meta Ads
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            Sincronização oficial de contas, campanhas, conjuntos, anúncios e Insights reais da Meta Graph API v21.0
           </p>
         </div>
-        <div className="flex items-center gap-3">
+
+        <div className="flex items-center gap-2.5">
           <PeriodSelector
             value={period.preset}
             onChange={(preset, from, to) => setPeriod({ preset, from, to, label: preset })}
           />
+
           <button
             onClick={() => syncMutation.mutate()}
             disabled={syncMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 shadow disabled:opacity-50 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 shadow disabled:opacity-50 transition-colors"
           >
-            <RefreshCw className={`w-4 h-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${syncMutation.isPending ? "animate-spin" : ""}`} />
             {syncMutation.isPending ? "Sincronizando..." : "Sincronizar Agora"}
           </button>
         </div>
       </div>
 
-      {/* Indicador de Progresso Real da Sincronização */}
+      {/* Barra de Progresso Real da Sincronização */}
       {syncMessage && (
-        <div className="p-4 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-xl space-y-2">
+        <div className="p-4 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-xl space-y-2 animate-in fade-in">
           <div className="flex items-center justify-between text-xs font-bold text-blue-900 dark:text-blue-200">
             <span>{syncMessage}</span>
             {syncStep > 0 && syncStep <= 5 && <span className="animate-pulse">{syncStep * 20}%</span>}
@@ -293,208 +302,225 @@ function MetaAdsContent() {
             </div>
           )}
           {syncDetail && (
-            <div className="flex items-center gap-4 text-[11px] text-blue-700 dark:text-blue-300 pt-1">
-              <span>✓ {syncDetail.campaigns || 0} campanhas</span>
-              <span>✓ {syncDetail.adSets || 0} conjuntos</span>
-              <span>✓ {syncDetail.ads || 0} anúncios</span>
-              <span>✓ {syncDetail.insights || 0} métricas diárias importadas</span>
+            <div className="flex flex-wrap gap-4 text-xs text-blue-800 dark:text-blue-300 pt-1 font-mono">
+              <span>Campanhas: {syncDetail.campaigns || 0}</span>
+              <span>Conjuntos: {syncDetail.adSets || 0}</span>
+              <span>Anúncios: {syncDetail.ads || 0}</span>
+              <span>Insights: {syncDetail.insights || 0}</span>
             </div>
           )}
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="border-b border-gray-200 dark:border-gray-800">
-        <nav className="-mb-px flex space-x-6 text-sm">
-          {tabs.map((tab) => (
+      {/* Navegação Superior por Abas (CONTAS | CAMPANHAS | CONJUNTOS | ANÚNCIOS) */}
+      <div className="border-b border-slate-200 dark:border-[#142C52] flex items-center justify-between">
+        <div className="flex space-x-1">
+          {tabs.map((tab) => {
+            const isActive = activeTab === tab;
+            return (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-5 py-3 text-xs font-bold uppercase tracking-wider transition-all relative ${
+                  isActive
+                    ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400"
+                    : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                {tab}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Ações da Aba Contas */}
+        {activeTab === "Contas" && (
+          <div className="flex items-center gap-2 pb-2">
             <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`${
-                activeTab === tab
-                  ? "border-blue-600 text-blue-600 dark:text-blue-400 font-bold"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:hover:text-gray-300"
-              } whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors`}
+              onClick={() => setIsSelectModalOpen(true)}
+              className="px-3 py-1.5 bg-slate-50 dark:bg-[#081A33] border border-slate-200 dark:border-[#142C52] text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold hover:bg-slate-100"
             >
-              {tab}
+              Selecionar Contas ({accounts.length})
             </button>
-          ))}
-        </nav>
+            <Link
+              href="/api/meta/oauth"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 shadow"
+            >
+              <Plus className="w-3.5 h-3.5" /> Conectar Meta
+            </Link>
+          </div>
+        )}
       </div>
 
-      {/* 1. Tab Contas */}
+      {/* Conteúdo da Aba Ativa */}
       {activeTab === "Contas" && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-            <div>
-              <h2 className="text-base font-bold text-gray-900 dark:text-white">
-                Contas de Anúncio ({accounts.length})
-              </h2>
-              <p className="text-xs text-gray-500">
-                Selecione as contas que devem alimentar o dashboard e os relatórios de UTM.
-              </p>
+          {loadingAccounts ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-40 bg-slate-100 dark:bg-[#081A33] rounded-xl border border-slate-200 dark:border-[#142C52]" />
+              ))}
             </div>
-            <div className="flex items-center gap-2">
-              {accounts.length > 0 && (
-                <button
-                  onClick={() => setIsSelectModalOpen(true)}
-                  className="flex items-center gap-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3.5 py-1.5 rounded-lg text-xs font-semibold hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200"
+          ) : accounts.length === 0 ? (
+            <div className="bg-white dark:bg-[#081A33] border border-slate-200/90 dark:border-[#142C52] rounded-xl p-10 text-center space-y-4">
+              <div className="w-12 h-12 rounded-full bg-blue-50 dark:bg-blue-950/50 text-blue-600 flex items-center justify-center mx-auto">
+                <TrendingUp className="w-6 h-6" />
+              </div>
+              <div className="max-w-md mx-auto">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Nenhuma conta de anúncios conectada
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Conecte sua conta Meta via OAuth oficial para sincronizar campanhas, conjuntos, anúncios e métricas de conversão.
+                </p>
+              </div>
+              <div className="pt-2 flex justify-center gap-3">
+                <Link
+                  href="/api/meta/oauth"
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow transition-colors inline-flex items-center gap-2"
                 >
-                  <Layers className="w-3.5 h-3.5 text-blue-600" /> Selecionar Contas ({selectedIds.length})
+                  <Plus className="w-4 h-4" /> Conectar com Facebook / Meta
+                </Link>
+                <button
+                  onClick={() => setIsManualModalOpen(true)}
+                  className="px-4 py-2.5 border border-slate-200 dark:border-[#142C52] text-slate-700 dark:text-slate-300 text-xs font-semibold rounded-xl hover:bg-slate-50 dark:hover:bg-[#142C52]/60"
+                >
+                  Adicionar Manualmente
                 </button>
-              )}
-              <button
-                onClick={() => setIsManualModalOpen(true)}
-                className="flex items-center gap-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3.5 py-1.5 rounded-lg text-xs font-semibold hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200"
-              >
-                <Plus className="w-3.5 h-3.5" /> Adicionar Manual
-              </button>
-              <Link
-                href="/api/meta/oauth"
-                className="flex items-center gap-1.5 bg-blue-600 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold hover:bg-blue-700 shadow transition-colors"
-              >
-                <Sparkles className="w-3.5 h-3.5" /> Conectar via OAuth Meta
-              </Link>
+              </div>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {accounts.map((acc) => {
-              const isSelected = selectedIds.includes(acc.id);
-              const isActive = acc.status === "active";
-
-              return (
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {accounts.map((acc) => (
                 <div
                   key={acc.id}
-                  className={`p-5 bg-white dark:bg-gray-900 rounded-xl border shadow-sm space-y-3 transition-all ${
-                    isSelected
-                      ? "border-blue-500/60 ring-1 ring-blue-500/30"
-                      : "border-gray-200 dark:border-gray-800 opacity-80"
-                  }`}
+                  className="bg-white dark:bg-[#081A33] border border-slate-200/90 dark:border-[#142C52] rounded-xl p-5 shadow-sm space-y-4 flex flex-col justify-between hover:border-blue-400 transition-all"
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-sm text-gray-900 dark:text-white truncate" title={acc.name}>
-                      {acc.name}
-                    </span>
-                    {isActive ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-400">
-                        <CheckCircle2 className="w-3 h-3" /> Conectada
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-white truncate max-w-[200px]" title={acc.name}>
+                          {acc.name}
+                        </h4>
+                        <p className="text-[11px] font-mono text-slate-400 mt-0.5">
+                          {acc.externalId}
+                        </p>
+                      </div>
+
+                      <span
+                        className={`px-2 py-0.5 text-[10px] font-bold rounded-full uppercase ${
+                          acc.status === "active"
+                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400"
+                            : acc.status === "reconnect_required"
+                            ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-400"
+                            : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400"
+                        }`}
+                      >
+                        {acc.status === "active" ? "Ativa" : acc.status === "reconnect_required" ? "Reconexão" : "Inativa"}
                       </span>
-                    ) : acc.status === "reconnect_required" ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-400">
-                        <AlertTriangle className="w-3 h-3" /> Reconectar
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                        Inativa
-                      </span>
-                    )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-[#142C52]/60">
+                      <div>
+                        <span className="text-slate-400 text-[10px] block">Moeda</span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">{acc.currency || "BRL"}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 text-[10px] block">Timezone</span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-200 truncate block">{acc.timezone || "America/Sao_Paulo"}</span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-slate-400 text-[10px] block">Última Sincronização</span>
+                        <span className="font-mono text-[11px] text-slate-700 dark:text-slate-300">
+                          {acc.lastSyncAt ? formatDate(acc.lastSyncAt) : "Nunca sincronizada"}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="space-y-1 text-xs text-gray-500">
-                    <p>
-                      ID da Conta:{" "}
-                      <span className="font-mono text-gray-700 dark:text-gray-300 font-semibold">
-                        {acc.externalId}
-                      </span>
-                    </p>
-                    <p>
-                      Moeda / Fuso:{" "}
-                      <span className="text-gray-700 dark:text-gray-300">
-                        {acc.currency || "BRL"} • {acc.timezone || "América/São Paulo"}
-                      </span>
-                    </p>
-                    <p>
-                      Último Sync:{" "}
-                      <span className="text-gray-700 dark:text-gray-300">
-                        {acc.lastSyncAt ? formatDate(acc.lastSyncAt) : "Nunca"}
-                      </span>
-                    </p>
-                  </div>
-                  <div className="pt-2 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
+
+                  <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-[#142C52]/60">
                     <button
                       onClick={() => syncMutation.mutate(acc.id)}
                       disabled={syncMutation.isPending}
-                      className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-300 text-xs font-bold rounded-lg transition-colors"
                     >
-                      <RefreshCw className="w-3 h-3" /> Sincronizar esta
+                      <RefreshCw className="w-3.5 h-3.5" /> Sincronizar
                     </button>
                     <button
-                      onClick={() => {
-                        if (confirm("Deseja desconectar esta conta de anúncio? Seus dados históricos serão preservados.")) {
-                          deleteAccountMutation.mutate(acc.id);
-                        }
-                      }}
-                      className="flex items-center gap-1 text-xs text-red-600 hover:text-red-700"
+                      onClick={() => deleteAccountMutation.mutate(acc.id)}
+                      className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors"
+                      title="Desconectar conta"
                     >
-                      <Trash2 className="w-3.5 h-3.5" /> Desconectar
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
-              );
-            })}
-
-            {accounts.length === 0 && !loadingAccounts && (
-              <div className="col-span-full py-16 text-center bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 text-gray-500 space-y-3">
-                <TrendingUp className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto" />
-                <h3 className="font-bold text-base text-gray-800 dark:text-gray-200">
-                  Nenhuma conta de anúncios conectada
-                </h3>
-                <p className="text-xs max-w-sm mx-auto text-gray-500">
-                  Clique no botão abaixo para autorizar o UTM-Track no Meta Ads via OAuth oficial e importar suas contas e campanhas.
-                </p>
-                <div className="pt-2">
-                  <Link
-                    href="/api/meta/oauth"
-                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 shadow"
-                  >
-                    <Sparkles className="w-4 h-4" /> Conectar Meta Ads Oficial
-                  </Link>
-                </div>
-              </div>
-            )}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* 2. Tab Campanhas */}
-      {activeTab === "Campanhas" && <CampaignsTable level="campaign" />}
+      {/* Aba CAMPANHAS */}
+      {activeTab === "Campanhas" && (
+        <CampaignsTable
+          level="campaign"
+          adAccountId={selectedAdAccount}
+          periodFrom={period.from.toISOString()}
+          periodTo={period.to.toISOString()}
+        />
+      )}
 
-      {/* 3. Tab Conjuntos */}
-      {activeTab === "Conjuntos" && <CampaignsTable level="adset" />}
+      {/* Aba CONJUNTOS */}
+      {activeTab === "Conjuntos" && (
+        <CampaignsTable
+          level="adset"
+          adAccountId={selectedAdAccount}
+          periodFrom={period.from.toISOString()}
+          periodTo={period.to.toISOString()}
+        />
+      )}
 
-      {/* 4. Tab Anúncios */}
-      {activeTab === "Anúncios" && <CampaignsTable level="ad" />}
+      {/* Aba ANÚNCIOS */}
+      {activeTab === "Anúncios" && (
+        <CampaignsTable
+          level="ad"
+          adAccountId={selectedAdAccount}
+          periodFrom={period.from.toISOString()}
+          periodTo={period.to.toISOString()}
+        />
+      )}
 
-      {/* Modal Selecionar Contas de Anúncio */}
+      {/* Modal Selecionar Contas */}
       {isSelectModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-5 border border-gray-200 dark:border-gray-800 animate-in fade-in zoom-in duration-150">
-            <div className="flex items-start justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white dark:bg-[#081A33] rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4 border border-slate-200 dark:border-[#142C52]">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-[#142C52] pb-3">
               <div>
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-blue-600" /> Selecionar Contas de Anúncios
-                </h2>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                  Marque as contas que deseja monitorar no UTM-Track ({selectedIds.length} selecionada(s))
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Selecionar Contas de Anúncios Meta
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Marque as contas que alimentarão os relatórios, dashboard e funil de conversão
                 </p>
               </div>
               <button
                 onClick={toggleSelectAll}
-                className="text-xs text-blue-600 hover:text-blue-700 font-bold flex items-center gap-1"
+                className="flex items-center gap-1.5 text-xs text-blue-600 font-bold"
               >
                 {selectedIds.length === accounts.length ? (
                   <>
-                    <Square className="w-3.5 h-3.5" /> Desmarcar Todas
+                    <Square className="w-3.5 h-3.5" /> Desmarcar
                   </>
                 ) : (
                   <>
-                    <CheckSquare className="w-3.5 h-3.5" /> Selecionar Todas
+                    <CheckSquare className="w-3.5 h-3.5" /> Marcar Todas
                   </>
                 )}
               </button>
             </div>
 
-            <div className="max-h-72 overflow-y-auto space-y-2 pr-1 divide-y divide-gray-100 dark:divide-gray-800">
+            <div className="max-h-72 overflow-y-auto space-y-2 pr-1 divide-y divide-slate-100 dark:divide-[#142C52]/60">
               {accounts.map((acc) => {
                 const isSelected = selectedIds.includes(acc.id);
                 return (
@@ -503,8 +529,8 @@ function MetaAdsContent() {
                     onClick={() => toggleAccount(acc.id)}
                     className={`flex items-center justify-between p-3 rounded-xl cursor-pointer transition-colors ${
                       isSelected
-                        ? "bg-blue-50/60 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900"
-                        : "hover:bg-gray-50 dark:hover:bg-gray-800/60 border border-transparent"
+                        ? "bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900"
+                        : "hover:bg-slate-50 dark:hover:bg-[#061224] border border-transparent"
                     }`}
                   >
                     <div className="flex items-center gap-3">
@@ -512,27 +538,27 @@ function MetaAdsContent() {
                         type="checkbox"
                         checked={isSelected}
                         onChange={() => {}}
-                        className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                        className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
                       />
                       <div>
-                        <p className="text-sm font-bold text-gray-900 dark:text-white truncate max-w-xs">
+                        <p className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-xs">
                           {acc.name}
                         </p>
-                        <p className="text-xs text-gray-500 font-mono">
+                        <p className="text-[10px] text-slate-400 font-mono">
                           {acc.externalId} • {acc.currency || "BRL"}
                         </p>
                       </div>
                     </div>
-                    <span className="text-xs font-medium text-gray-500">
-                      {acc.timezone || "América/São Paulo"}
+                    <span className="text-[10px] font-medium text-slate-400">
+                      {acc.timezone || "America/Sao_Paulo"}
                     </span>
                   </label>
                 );
               })}
 
               {accounts.length === 0 && (
-                <p className="text-center text-xs text-gray-500 py-6">
-                  Nenhuma conta encontrada vinculada a este perfil da Meta.
+                <p className="text-center text-xs text-slate-400 py-6">
+                  Nenhuma conta vinculada encontrada.
                 </p>
               )}
             </div>
@@ -540,14 +566,14 @@ function MetaAdsContent() {
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => setIsSelectModalOpen(false)}
-                className="flex-1 py-2.5 text-sm font-medium border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+                className="flex-1 py-2.5 text-xs font-semibold border border-slate-200 dark:border-[#142C52] rounded-xl hover:bg-slate-50 dark:hover:bg-[#142C52] text-slate-700 dark:text-slate-300"
               >
                 Cancelar
               </button>
               <button
                 onClick={() => selectAccountsMutation.mutate(selectedIds)}
                 disabled={selectedIds.length === 0 || selectAccountsMutation.isPending}
-                className="flex-1 py-2.5 text-sm bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow disabled:opacity-50 transition-colors"
+                className="flex-1 py-2.5 text-xs bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow disabled:opacity-50 transition-colors"
               >
                 {selectAccountsMutation.isPending ? "Salvando..." : "Conectar Contas"}
               </button>
@@ -556,61 +582,63 @@ function MetaAdsContent() {
         </div>
       )}
 
-      {/* Modal Adicionar Conta Manual */}
+      {/* Modal Adicionar Manual */}
       {isManualModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">Conectar Conta de Anúncios</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white dark:bg-[#081A33] rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4 border border-slate-200 dark:border-[#142C52]">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">
+              Conectar Conta Manualmente
+            </h3>
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Nome Identificador
                 </label>
                 <input
                   type="text"
-                  placeholder="Ex: Conta Escala Principal"
+                  placeholder="Ex: Conta Principal Tráfego"
                   value={manualAccount.name}
                   onChange={(e) => setManualAccount({ ...manualAccount, name: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[#142C52] bg-slate-50 dark:bg-[#061224] text-xs text-slate-900 dark:text-white"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  ID da Conta (act_XXXXXXXXX)
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  ID da Conta (act_XXXXXXXXX ou número)
                 </label>
                 <input
                   type="text"
-                  placeholder="Ex: 1020304050"
+                  placeholder="Ex: act_1234567890"
                   value={manualAccount.externalId}
                   onChange={(e) => setManualAccount({ ...manualAccount, externalId: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[#142C52] bg-slate-50 dark:bg-[#061224] text-xs text-slate-900 dark:text-white font-mono"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Access Token de Usuário do Sistema (Opcional)
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Access Token de Sistema (Opcional)
                 </label>
                 <input
                   type="password"
                   placeholder="EAAB..."
                   value={manualAccount.accessToken}
                   onChange={(e) => setManualAccount({ ...manualAccount, accessToken: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[#142C52] bg-slate-50 dark:bg-[#061224] text-xs font-mono"
                 />
-                <p className="text-[11px] text-gray-400 mt-1">Criptografado com AES-256-GCM em repouso.</p>
+                <p className="text-[10px] text-slate-400 mt-1">Criptografado com AES-256-GCM em repouso.</p>
               </div>
             </div>
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => setIsManualModalOpen(false)}
-                className="flex-1 py-2 text-sm border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
+                className="flex-1 py-2 text-xs border border-slate-200 dark:border-[#142C52] rounded-lg hover:bg-slate-50 dark:hover:bg-[#142C52] text-slate-700 dark:text-slate-300"
               >
                 Cancelar
               </button>
               <button
                 onClick={() => addAccountMutation.mutate(manualAccount)}
                 disabled={!manualAccount.name || !manualAccount.externalId}
-                className="flex-1 py-2 text-sm bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50"
+                className="flex-1 py-2 text-xs bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50"
               >
                 Salvar Conta
               </button>
@@ -624,9 +652,8 @@ function MetaAdsContent() {
 
 export default function MetaAdsPage() {
   return (
-    <Suspense fallback={<div className="p-6 text-center text-sm text-gray-500">Carregando Meta Ads...</div>}>
+    <Suspense fallback={<div className="p-6 text-center text-xs text-slate-400">Carregando Meta Ads...</div>}>
       <MetaAdsContent />
     </Suspense>
   );
 }
-
