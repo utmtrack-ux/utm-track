@@ -208,6 +208,17 @@ export default function SettingsPage() {
             </p>
           </div>
         </div>
+
+        {/* Biometric Devices link */}
+        <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-xs">
+          <div>
+            <p className="font-semibold text-gray-900 dark:text-white">🔑 Dispositivos com Biometria</p>
+            <p className="text-gray-500 dark:text-gray-400 mt-0.5">Gerencie dispositivos autorizados para login biométrico (impressão digital / Face ID).</p>
+          </div>
+          <Link href="/settings/security" className="ml-3 shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-[#0066FF] hover:underline">
+            Gerenciar <ArrowRight className="w-3 h-3" />
+          </Link>
+        </div>
       </div>
 
       {/* Workspace Members */}

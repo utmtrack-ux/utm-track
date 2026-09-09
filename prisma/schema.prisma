@@ -33,6 +33,7 @@ model User {
   sessions      Session[]
   memberships   WorkspaceMember[]
   devices       Device[]
+  passkeys      PasskeyCredential[]
   notificationPreferences NotificationPreference[]
   notificationSounds      NotificationSound[]
 }
@@ -855,4 +856,39 @@ model AuditLog {
   @@index([workspaceId, createdAt])
   @@index([createdAt])
   @@index([action])
+}
+
+// ============================================================
+// WEBAUTHN / BIOMETRICS / PASSKEYS
+// ============================================================
+
+model PasskeyCredential {
+  id           String    @id @default(cuid())
+  userId       String
+  credentialId String    @unique
+  publicKey    String    // Base64-encoded public key / COSE representation
+  counter      BigInt    @default(0)
+  deviceType   String?   // android, ios, windows, macos, platform
+  deviceName   String?   // e.g. "Samsung Galaxy S24", "iPhone 15 Pro", "Windows Hello"
+  backedUp     Boolean   @default(false)
+  transports   String?   // JSON array e.g. ["internal", "hybrid"]
+  lastUsedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model WebAuthnChallenge {
+  id        String   @id @default(cuid())
+  challenge String   @unique
+  userId    String?
+  type      String   // registration, authentication
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([challenge])
+  @@index([expiresAt])
 }

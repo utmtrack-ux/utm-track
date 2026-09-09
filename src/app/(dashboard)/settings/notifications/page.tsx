@@ -594,9 +594,14 @@ function CustomSoundCard({
         body: formData,
       });
 
-      const data = await res.json();
+      // Guard against HTML error pages (Vercel 5xx / CDN errors) that have no JSON body
+      const contentType = res.headers.get("content-type") || "";
+      let data: any = {};
+      if (contentType.includes("application/json")) {
+        try { data = await res.json(); } catch { /* non-JSON body */ }
+      }
       if (!res.ok) {
-        throw new Error(data.error || "Falha ao enviar arquivo de som");
+        throw new Error(data.error || `Falha ao enviar arquivo de som (HTTP ${res.status})`);
       }
 
       if (data.warning) {
@@ -644,7 +649,12 @@ function CustomSoundCard({
           customSoundName: customSound?.originalFileName,
         }),
       });
-      const data = await res.json();
+      // Guard against HTML error pages (Vercel 5xx / CDN errors) that return no JSON body
+      const ctPush = res.headers.get("content-type") || "";
+      let data: any = {};
+      try {
+        if (ctPush.includes("application/json")) data = await res.json();
+      } catch { /* non-JSON body — keep data as {} */ }
       if (data.success) {
         setTestResult(`✓ Push enviado para ${data.devicesCount || 0} dispositivo(s).`);
         await playNotificationSound(config.defaultSoundKey, customSound?.fileUrl);
